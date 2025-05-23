@@ -196,10 +196,12 @@ Module.register("voiceassistant", {
 
 	async startContinuousRecording() {
 		if (this.isListening || !this.audioStream) {
+			console.log(`⚠️ [VoiceAssistant] Cannot start continuous recording: isListening=${this.isListening}, audioStream=${!!this.audioStream}`);
 			return;
 		}
 
 		console.log("🎤 [VoiceAssistant] Starting continuous recording for wake word...");
+		console.log(`📊 [VoiceAssistant] State: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 		
 		this.isListening = true;
 		this.audioChunks = [];
@@ -291,9 +293,14 @@ Module.register("voiceassistant", {
 			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 500ms...");
 			setTimeout(() => {
 				if (this.isWakeWordActive && !this.isProcessing) {
+					console.log("✅ [VoiceAssistant] Restarting continuous recording now");
 					this.startContinuousRecording();
+				} else {
+					console.log(`⚠️ [VoiceAssistant] Cannot restart: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 				}
 			}, 500); // Shorter gap between recordings
+		} else {
+			console.log(`⚠️ [VoiceAssistant] Not restarting: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 		}
 	},
 
@@ -638,7 +645,9 @@ Module.register("voiceassistant", {
 						console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
 						
 						// Check if wake word is in the transcript
-						if (transcript.includes(this.config.wakeWord.toLowerCase())) {
+						if (transcript.includes(this.config.wakeWord.toLowerCase()) || 
+							transcript.includes("mirror") || 
+							transcript.includes("hello mirror")) {
 							console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
 							this.onWakeWordDetected();
 						}
