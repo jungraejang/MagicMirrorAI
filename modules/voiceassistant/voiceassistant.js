@@ -198,8 +198,8 @@ Module.register("voiceassistant", {
 		if (this.isListening) {
 			console.log(`⚠️ [VoiceAssistant] Already listening, forcing reset...`);
 			this.isListening = false;
-			// Small delay to let previous recording cleanup
-			await new Promise(resolve => setTimeout(resolve, 100));
+			// Shorter delay for faster restart
+			await new Promise(resolve => setTimeout(resolve, 50));
 		}
 		
 		if (!this.audioStream) {
@@ -214,9 +214,10 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
-			// Create MediaRecorder for continuous listening
+			// Create MediaRecorder for continuous listening with optimized settings
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: 'audio/webm'
+				mimeType: 'audio/webm',
+				audioBitsPerSecond: 16000 // Lower bitrate for faster processing
 			});
 
 			this.mediaRecorder.ondataavailable = (event) => {
@@ -229,15 +230,15 @@ Module.register("voiceassistant", {
 				this.processContinuousRecording();
 			};
 
-			// Start recording
-			this.mediaRecorder.start();
+			// Start recording with smaller time slices for faster processing
+			this.mediaRecorder.start(500); // 500ms slices for more responsive processing
 
-			// Simple approach: record for 8 seconds, then process and restart
+			// Optimized: shorter chunks for faster wake word detection
 			this.wakeWordInterval = setTimeout(() => {
 				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
 					this.mediaRecorder.stop();
 				}
-			}, 8000); // 8-second chunks for better wake word capture
+			}, 3000); // 3-second chunks for faster response
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
@@ -300,7 +301,7 @@ Module.register("voiceassistant", {
 
 	restartContinuousRecording() {
 		if (this.isWakeWordActive && !this.isProcessing) {
-			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 500ms...");
+			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 200ms...");
 			setTimeout(() => {
 				if (this.isWakeWordActive && !this.isProcessing) {
 					console.log("✅ [VoiceAssistant] Restarting continuous recording now");
@@ -308,7 +309,7 @@ Module.register("voiceassistant", {
 				} else {
 					console.log(`⚠️ [VoiceAssistant] Cannot restart: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 				}
-			}, 500); // Shorter gap between recordings
+			}, 200); // Faster restart for better responsiveness
 		} else {
 			console.log(`⚠️ [VoiceAssistant] Not restarting: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 		}
@@ -654,10 +655,13 @@ Module.register("voiceassistant", {
 					if (transcript) {
 						console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
 						
-						// Check if wake word is in the transcript
+						// Enhanced wake word detection with multiple triggers
 						if (transcript.includes(this.config.wakeWord.toLowerCase()) || 
 							transcript.includes("mirror") || 
-							transcript.includes("hello mirror")) {
+							transcript.includes("hello mirror") ||
+							transcript.includes("hello") ||
+							transcript.includes("hey mirror") ||
+							transcript.includes("ok mirror")) {
 							console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
 							this.onWakeWordDetected();
 						}
