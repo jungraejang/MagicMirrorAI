@@ -28,7 +28,6 @@ Module.register("voiceassistant", {
 		this.mediaRecorder = null;
 		this.audioStream = null;
 		this.wakeWordInterval = null;
-		this.wakeWordRestartInterval = null;
 		this.displayTimer = null;
 		this.currentState = "initializing";
 		this.audioChunks = [];
@@ -224,19 +223,12 @@ Module.register("voiceassistant", {
 			// Start recording
 			this.mediaRecorder.start();
 
-			// Process audio chunks every 3 seconds for wake word detection
-			this.wakeWordInterval = setInterval(() => {
-				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
-					this.mediaRecorder.requestData();
-				}
-			}, 3000);
-
-			// Stop and restart every 6 seconds to process audio
-			this.wakeWordRestartInterval = setInterval(() => {
+			// Simple approach: record for 4 seconds, then process and restart
+			this.wakeWordInterval = setTimeout(() => {
 				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
 					this.mediaRecorder.stop();
 				}
-			}, 6000);
+			}, 4000); // Shorter 4-second chunks
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
@@ -288,9 +280,12 @@ Module.register("voiceassistant", {
 
 	restartContinuousRecording() {
 		if (this.isWakeWordActive && !this.isProcessing) {
+			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 500ms...");
 			setTimeout(() => {
-				this.startContinuousRecording();
-			}, 100);
+				if (this.isWakeWordActive && !this.isProcessing) {
+					this.startContinuousRecording();
+				}
+			}, 500); // Shorter gap between recordings
 		}
 	},
 
@@ -301,13 +296,8 @@ Module.register("voiceassistant", {
 		this.isListening = false;
 		
 		if (this.wakeWordInterval) {
-			clearInterval(this.wakeWordInterval);
+			clearTimeout(this.wakeWordInterval);
 			this.wakeWordInterval = null;
-		}
-		
-		if (this.wakeWordRestartInterval) {
-			clearInterval(this.wakeWordRestartInterval);
-			this.wakeWordRestartInterval = null;
 		}
 		
 		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
