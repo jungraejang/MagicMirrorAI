@@ -27,7 +27,7 @@ module.exports = NodeHelper.create({
 				break;
 
 			case "VOSK_TRANSCRIBE":
-				this.transcribeWithVosk(payload.audioData);
+				this.transcribeWithVosk(payload.audioData, payload.isCommand, payload.originalFormat);
 				break;
 				
 			case "VOSK_WAKE_WORD":
@@ -37,36 +37,43 @@ module.exports = NodeHelper.create({
 		}
 	},
 
-	async transcribeWithVosk(audioData) {
+	async transcribeWithVosk(audioData, isCommand = false, originalFormat = 'wav') {
 		try {
-			console.log(`🎙️ [${this.name}] Sending audio to Vosk for transcription...`);
+			const logPrefix = isCommand ? "Command" : "Wake word";
+			console.log(`🎙️ [${this.name}] Sending ${logPrefix.toLowerCase()} audio to Vosk (${originalFormat} format)...`);
 			
 			const voskUrl = "http://localhost:5000/transcribe";
 			
+			// If original format was WebM, we might need different handling
+			const contentType = originalFormat === 'webm' ? 'audio/webm' : 'audio/wav';
+			
 			const response = await axios.post(voskUrl, audioData, {
 				headers: {
-					'Content-Type': 'audio/wav',
+					'Content-Type': contentType,
 				},
-				timeout: 10000
+				timeout: isCommand ? 15000 : 10000  // Longer timeout for command transcription
 			});
 
 			if (response.data.success) {
 				const transcript = response.data.text.trim();
-				console.log(`🗣️ [${this.name}] Vosk transcribed: "${transcript}"`);
+				console.log(`🗣️ [${this.name}] ${logPrefix} transcribed: "${transcript}"`);
 				
-				if (transcript) {
+				if (transcript || !isCommand) {
+					// For wake word detection, empty transcript is normal (silence)
+					// For commands, we expect some text
 					this.sendSocketNotification("VOSK_TRANSCRIPTION", {
 						success: true,
 						transcript: transcript
 					});
 				} else {
+					console.log(`⚠️ [${this.name}] Empty ${logPrefix.toLowerCase()} transcription`);
 					this.sendSocketNotification("VOSK_TRANSCRIPTION", {
 						success: false,
-						error: "No speech detected"
+						error: "No speech detected in command"
 					});
 				}
 			} else {
-				console.error(`❌ [${this.name}] Vosk transcription failed:`, response.data.error);
+				console.error(`❌ [${this.name}] ${logPrefix} transcription failed:`, response.data.error);
 				this.sendSocketNotification("VOSK_TRANSCRIPTION", {
 					success: false,
 					error: response.data.error
@@ -74,10 +81,22 @@ module.exports = NodeHelper.create({
 			}
 
 		} catch (error) {
-			console.error(`❌ [${this.name}] Vosk transcription error:`, error.message);
+			const logPrefix = isCommand ? "Command" : "Wake word";
+			console.error(`❌ [${this.name}] ${logPrefix} transcription error:`, error.message);
+			
+			// Provide more specific error messages for command transcription
+			let errorMessage = `Vosk service error: ${error.message}`;
+			if (isCommand) {
+				if (error.code === 'ECONNREFUSED') {
+					errorMessage = "Cannot connect to Vosk service - is it running?";
+				} else if (error.code === 'ETIMEDOUT') {
+					errorMessage = "Vosk service timeout - audio may be too long or corrupted";
+				}
+			}
+			
 			this.sendSocketNotification("VOSK_TRANSCRIPTION", {
 				success: false,
-				error: `Vosk service error: ${error.message}`
+				error: errorMessage
 			});
 		}
 	},
