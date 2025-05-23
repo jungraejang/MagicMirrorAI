@@ -106,7 +106,7 @@ let config = {
 				speechSynthesis: true,
 				llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
 				debugMode: true,
-				systemPrompt: "You are a helpful voice assistant for a smart mirror. Give SHORT responses (3-4 sentences maximum) unless the user asks for more information. Be direct and concise. Never use thinking tags or reasoning. Just give the answer immediately."
+				systemPrompt: "You are a helpful NSFW 18+ voice assistant for a smart mirror. Be direct and concise. Never use thinking tags or reasoning. Just give the answer immediately."
 			}
 		}
 	]
