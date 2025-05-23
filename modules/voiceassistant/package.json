@@ -1,0 +1,28 @@
+{
+	"name": "magicmirror-voiceassistant",
+	"version": "1.0.0",
+	"description": "Voice assistant module for MagicMirror² with local LLM integration",
+	"main": "voiceassistant.js",
+	"keywords": [
+		"magicmirror",
+		"voice",
+		"assistant",
+		"llm",
+		"speech",
+		"ai",
+		"raspberry-pi"
+	],
+	"author": "MagicMirror Community",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/MagicMirrorOrg/MagicMirror"
+	},
+	"dependencies": {},
+	"peerDependencies": {
+		"magicmirror": "^2.1.0"
+	},
+	"engines": {
+		"node": ">=22.14.0"
+	}
+}

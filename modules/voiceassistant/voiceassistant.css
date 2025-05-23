@@ -1,0 +1,196 @@
+.voice-assistant {
+  padding: 15px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(5px);
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  transition: all 0.3s ease;
+}
+
+.status-indicator.waiting {
+  background: rgba(128, 128, 128, 0.2);
+  color: #888;
+}
+
+.status-indicator.listening {
+  background: rgba(0, 150, 255, 0.2);
+  color: #0096ff;
+  border: 2px solid rgba(0, 150, 255, 0.3);
+}
+
+.status-indicator.processing {
+  background: rgba(255, 165, 0, 0.2);
+  color: #ffa500;
+  border: 2px solid rgba(255, 165, 0, 0.3);
+}
+
+.status-indicator.responding {
+  background: rgba(0, 255, 0, 0.2);
+  color: #00ff00;
+  border: 2px solid rgba(0, 255, 0, 0.3);
+}
+
+.status-indicator i {
+  font-size: 24px;
+  margin-right: 8px;
+}
+
+.status-text {
+  font-size: 16px;
+  font-weight: 300;
+}
+
+/* Animations */
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.pulse {
+  animation: pulse 1.5s infinite;
+}
+
+.spin {
+  animation: spin 2s linear infinite;
+}
+
+/* Conversation display */
+.conversation {
+  margin-top: 15px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.user-message,
+.assistant-message {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.user-message {
+  background: rgba(0, 150, 255, 0.15);
+  color: #ccc;
+  border-left: 3px solid #0096ff;
+}
+
+.assistant-message {
+  background: rgba(0, 255, 0, 0.15);
+  color: #ccc;
+  border-left: 3px solid #00ff00;
+}
+
+.user-message i,
+.assistant-message i {
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+/* Scrollbar styling */
+.conversation::-webkit-scrollbar {
+  width: 4px;
+}
+
+.conversation::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.conversation::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+}
+
+.conversation::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Responsive design */
+@media (max-width: 600px) {
+  .voice-assistant {
+    max-width: 95%;
+    padding: 10px;
+  }
+
+  .status-indicator i {
+    font-size: 20px;
+  }
+
+  .status-text {
+    font-size: 14px;
+  }
+
+  .user-message,
+  .assistant-message {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}
+
+/* Visual feedback for different states */
+.status-indicator.listening::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, transparent, rgba(0, 150, 255, 0.3), transparent);
+  border-radius: 10px;
+  z-index: -1;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.processing::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(45deg, transparent, rgba(255, 165, 0, 0.3), transparent);
+  border-radius: 10px;
+  z-index: -1;
+  animation: spin 3s linear infinite;
+}
+
+.status-indicator {
+  position: relative;
+}
