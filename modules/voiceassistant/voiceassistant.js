@@ -37,6 +37,13 @@ Module.register("voiceassistant", {
 		this.currentUserInput = "";
 		this.wakeWordAttempts = 0;
 		
+		// Audio capture variables
+		this.validRecordingMimeType = null;
+		this.audioContext = null;
+		this.audioSource = null;
+		this.audioProcessor = null;
+		this.capturedAudioData = [];
+		
 		// Send config to node helper
 		this.sendSocketNotification("CONFIG", this.config);
 		console.log("📡 [VoiceAssistant] Config sent to node helper");
@@ -215,51 +222,18 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
-			// Try different MIME types in order of preference for better compatibility
-			const mimeTypes = [
-				'audio/wav',
-				'audio/webm',  // Basic WebM without codec specification
-				'audio/ogg'    // Basic OGG without codec specification
-			];
-			
-			let selectedMimeType = null;
-			for (const mimeType of mimeTypes) {
-				if (MediaRecorder.isTypeSupported(mimeType)) {
-					selectedMimeType = mimeType;
-					console.log(`✅ [VoiceAssistant] Using MIME type: ${mimeType}`);
-					break;
-				}
-			}
-			
-			if (!selectedMimeType) {
-				// Try with codec specification as fallback
-				const codecMimeTypes = [
-					'audio/webm;codecs=opus',
-					'audio/ogg;codecs=opus'
-				];
-				
-				for (const mimeType of codecMimeTypes) {
-					if (MediaRecorder.isTypeSupported(mimeType)) {
-						selectedMimeType = mimeType;
-						console.log(`⚠️ [VoiceAssistant] Using codec-specific MIME type: ${mimeType}`);
-						break;
-					}
-				}
-			}
-			
-			if (!selectedMimeType) {
-				selectedMimeType = 'audio/webm'; // Final fallback
-				console.log("⚠️ [VoiceAssistant] No supported MIME types found, using fallback");
-			}
+			// Use the pre-tested valid recording format
+			let mimeType = this.validRecordingMimeType || 'audio/webm'; // Fallback
+			console.log(`✅ [VoiceAssistant] Using MIME type for wake word: ${mimeType}`);
 
 			// Create MediaRecorder for continuous listening with optimized settings
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: selectedMimeType,
+				mimeType: mimeType,
 				audioBitsPerSecond: 16000 // Lower bitrate for faster processing
 			});
 			
 			// Store format for consistency 
-			this.wakeWordMimeType = selectedMimeType;
+			this.wakeWordMimeType = mimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				if (event.data.size > 0) {
@@ -395,11 +369,111 @@ Module.register("voiceassistant", {
 			
 			console.log("✅ [VoiceAssistant] Microphone access granted for Vosk");
 			
+			// Test recording formats to find one that actually works
+			await this.testRecordingFormats();
+			
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to access microphone:", error);
 			this.currentState = "error";
 			this.updateDom();
 			throw error;
+		}
+	},
+
+	async testRecordingFormats() {
+		console.log("🧪 [VoiceAssistant] Testing recording formats...");
+		
+		const formatsToTest = [
+			'audio/wav',
+			'audio/ogg',
+			'audio/webm'
+		];
+		
+		for (const mimeType of formatsToTest) {
+			if (MediaRecorder.isTypeSupported(mimeType)) {
+				console.log(`🔬 [VoiceAssistant] Testing ${mimeType}...`);
+				
+				const isValid = await this.testMimeType(mimeType);
+				if (isValid) {
+					this.validRecordingMimeType = mimeType;
+					console.log(`✅ [VoiceAssistant] Found working format: ${mimeType}`);
+					return;
+				} else {
+					console.log(`❌ [VoiceAssistant] Format ${mimeType} produces invalid files`);
+				}
+			}
+		}
+		
+		console.log("⚠️ [VoiceAssistant] No valid recording formats found, will use direct audio capture");
+		this.validRecordingMimeType = null;
+	},
+
+	async testMimeType(mimeType) {
+		return new Promise((resolve) => {
+			try {
+				const testRecorder = new MediaRecorder(this.audioStream, { mimeType });
+				const testChunks = [];
+				
+				testRecorder.ondataavailable = (event) => {
+					if (event.data.size > 0) {
+						testChunks.push(event.data);
+					}
+				};
+				
+				testRecorder.onstop = async () => {
+					try {
+						if (testChunks.length === 0) {
+							resolve(false);
+							return;
+						}
+						
+						const testBlob = new Blob(testChunks, { type: mimeType });
+						if (testBlob.size < 100) {
+							resolve(false);
+							return;
+						}
+						
+						// Try to decode the audio to see if it's valid
+						if (mimeType === 'audio/wav') {
+							// WAV should work directly
+							resolve(true);
+						} else {
+							// Test WebM/OGG by trying to decode it
+							const isValid = await this.testAudioDecoding(testBlob);
+							resolve(isValid);
+						}
+					} catch (error) {
+						console.log(`🔬 [VoiceAssistant] Test decode failed for ${mimeType}:`, error.message);
+						resolve(false);
+					}
+				};
+				
+				testRecorder.onerror = () => resolve(false);
+				
+				// Record for 1 second
+				testRecorder.start();
+				setTimeout(() => {
+					if (testRecorder.state === 'recording') {
+						testRecorder.stop();
+					}
+				}, 1000);
+				
+			} catch (error) {
+				console.log(`🔬 [VoiceAssistant] Test recorder creation failed for ${mimeType}:`, error.message);
+				resolve(false);
+			}
+		});
+	},
+
+	async testAudioDecoding(audioBlob) {
+		try {
+			const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+			const arrayBuffer = await audioBlob.arrayBuffer();
+			await audioContext.decodeAudioData(arrayBuffer);
+			await audioContext.close();
+			return true;
+		} catch (error) {
+			return false;
 		}
 	},
 
@@ -436,51 +510,23 @@ Module.register("voiceassistant", {
 		this.isListening = true;
 		this.audioChunks = [];
 
-		try {
-			// Try different MIME types in order of preference for better compatibility
-			const mimeTypes = [
-				'audio/wav',
-				'audio/webm',  // Basic WebM without codec specification
-				'audio/ogg'    // Basic OGG without codec specification
-			];
-			
-			let selectedMimeType = null;
-			for (const mimeType of mimeTypes) {
-				if (MediaRecorder.isTypeSupported(mimeType)) {
-					selectedMimeType = mimeType;
-					console.log(`✅ [VoiceAssistant] Using MIME type: ${mimeType}`);
-					break;
-				}
-			}
-			
-			if (!selectedMimeType) {
-				// Try with codec specification as fallback
-				const codecMimeTypes = [
-					'audio/webm;codecs=opus',
-					'audio/ogg;codecs=opus'
-				];
-				
-				for (const mimeType of codecMimeTypes) {
-					if (MediaRecorder.isTypeSupported(mimeType)) {
-						selectedMimeType = mimeType;
-						console.log(`⚠️ [VoiceAssistant] Using codec-specific MIME type: ${mimeType}`);
-						break;
-					}
-				}
-			}
-			
-			if (!selectedMimeType) {
-				selectedMimeType = 'audio/webm'; // Final fallback
-				console.log("⚠️ [VoiceAssistant] No supported MIME types found, using fallback");
-			}
+		// Use direct audio capture if MediaRecorder doesn't work
+		if (!this.validRecordingMimeType) {
+			console.log("🔄 [VoiceAssistant] Using direct audio capture method");
+			await this.startDirectAudioCapture();
+			return;
+		}
 
-			// Create MediaRecorder for command recording with compatible format
+		try {
+			console.log(`✅ [VoiceAssistant] Using validated MIME type: ${this.validRecordingMimeType}`);
+
+			// Create MediaRecorder with the tested format
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: selectedMimeType
+				mimeType: this.validRecordingMimeType
 			});
 			
 			// Store the format for later processing
-			this.recordingMimeType = selectedMimeType;
+			this.recordingMimeType = this.validRecordingMimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				console.log(`📊 [VoiceAssistant] Command audio chunk: ${event.data.size} bytes`);
@@ -514,13 +560,148 @@ Module.register("voiceassistant", {
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start command recording:", error);
+			console.log("🔄 [VoiceAssistant] Falling back to direct audio capture");
+			await this.startDirectAudioCapture();
+		}
+	},
+
+	async startDirectAudioCapture() {
+		console.log("🎙️ [VoiceAssistant] Starting direct audio capture...");
+		
+		try {
+			// Create audio context for direct capture
+			this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+				sampleRate: 16000
+			});
+			
+			// Create source from audio stream
+			this.audioSource = this.audioContext.createMediaStreamSource(this.audioStream);
+			
+			// Create script processor for capturing audio data
+			this.audioProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+			this.capturedAudioData = [];
+			
+			this.audioProcessor.onaudioprocess = (event) => {
+				const inputBuffer = event.inputBuffer;
+				const inputData = inputBuffer.getChannelData(0);
+				
+				// Copy the audio data
+				const audioData = new Float32Array(inputData.length);
+				audioData.set(inputData);
+				this.capturedAudioData.push(audioData);
+			};
+			
+			// Connect the audio pipeline
+			this.audioSource.connect(this.audioProcessor);
+			this.audioProcessor.connect(this.audioContext.destination);
+			
+			console.log("✅ [VoiceAssistant] Direct audio capture started");
+			
+			// Auto-stop after configured duration
+			this.commandRecordingTimer = setTimeout(() => {
+				if (this.currentState === "listening") {
+					console.log("⏰ [VoiceAssistant] Direct capture timeout, stopping...");
+					this.stopDirectAudioCapture();
+				}
+			}, this.config.recordingDuration);
+			
+		} catch (error) {
+			console.error("❌ [VoiceAssistant] Failed to start direct audio capture:", error);
 			this.setState("waiting");
 			this.isProcessing = false;
 		}
 	},
 
+	async stopDirectAudioCapture() {
+		console.log("🔇 [VoiceAssistant] Stopping direct audio capture...");
+		
+		if (this.commandRecordingTimer) {
+			clearTimeout(this.commandRecordingTimer);
+			this.commandRecordingTimer = null;
+		}
+		
+		this.isListening = false;
+		
+		if (this.audioProcessor) {
+			this.audioProcessor.disconnect();
+			this.audioProcessor = null;
+		}
+		
+		if (this.audioSource) {
+			this.audioSource.disconnect();
+			this.audioSource = null;
+		}
+		
+		// Process the captured audio
+		await this.processDirectAudioCapture();
+	},
+
+	async processDirectAudioCapture() {
+		console.log("🔄 [VoiceAssistant] Processing direct audio capture...");
+		
+		this.setState("processing");
+		
+		try {
+			if (!this.capturedAudioData || this.capturedAudioData.length === 0) {
+				console.log("⚠️ [VoiceAssistant] No audio data captured");
+				this.setState("waiting");
+				this.isProcessing = false;
+				return;
+			}
+			
+			// Combine all audio chunks
+			let totalLength = 0;
+			this.capturedAudioData.forEach(chunk => totalLength += chunk.length);
+			
+			const combinedAudio = new Float32Array(totalLength);
+			let offset = 0;
+			this.capturedAudioData.forEach(chunk => {
+				combinedAudio.set(chunk, offset);
+				offset += chunk.length;
+			});
+			
+			console.log(`📊 [VoiceAssistant] Captured ${combinedAudio.length} audio samples`);
+			
+			// Create WAV file directly
+			const wavBuffer = this.createWavFile(combinedAudio, 16000);
+			const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+			
+			console.log(`📊 [VoiceAssistant] Created WAV file: ${wavBlob.size} bytes`);
+			
+			// Send to Vosk
+			const reader = new FileReader();
+			reader.onload = () => {
+				const audioData = reader.result;
+				console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of direct-captured WAV to Vosk...`);
+				this.sendSocketNotification("VOSK_TRANSCRIBE", { 
+					audioData: audioData,
+					isCommand: true,
+					originalFormat: 'wav'
+				});
+			};
+			reader.onerror = () => {
+				console.error("❌ [VoiceAssistant] FileReader error");
+				this.setState("waiting");
+				this.isProcessing = false;
+			};
+			reader.readAsArrayBuffer(wavBlob);
+			
+		} catch (error) {
+			console.error("❌ [VoiceAssistant] Error processing direct audio capture:", error);
+			this.setState("waiting");
+			this.isProcessing = false;
+		} finally {
+			// Clean up
+			this.capturedAudioData = [];
+			if (this.audioContext && this.audioContext.state !== 'closed') {
+				await this.audioContext.close();
+				this.audioContext = null;
+			}
+		}
+	},
+
 	stopCommandRecording() {
-		if (!this.isListening || !this.mediaRecorder) {
+		if (!this.isListening) {
 			console.log("⚠️ [VoiceAssistant] No active command recording to stop");
 			return;
 		}
@@ -534,8 +715,14 @@ Module.register("voiceassistant", {
 		
 		this.isListening = false;
 		
-		if (this.mediaRecorder.state === "recording") {
+		// Handle MediaRecorder method
+		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
 			this.mediaRecorder.stop();
+		}
+		
+		// Handle direct audio capture method
+		if (this.audioProcessor) {
+			this.stopDirectAudioCapture();
 		}
 	},
 
@@ -1040,6 +1227,20 @@ Module.register("voiceassistant", {
 		
 		// Clean up Vosk wake word detection
 		this.stopVoskWakeWordDetection();
+		
+		// Clean up direct audio capture
+		if (this.audioProcessor) {
+			this.audioProcessor.disconnect();
+			this.audioProcessor = null;
+		}
+		if (this.audioSource) {
+			this.audioSource.disconnect();
+			this.audioSource = null;
+		}
+		if (this.audioContext && this.audioContext.state !== 'closed') {
+			this.audioContext.close();
+			this.audioContext = null;
+		}
 		
 		if (this.audioStream) {
 			this.audioStream.getTracks().forEach(track => track.stop());
