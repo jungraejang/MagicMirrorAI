@@ -215,11 +215,37 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
+			// Use the same MIME type that was determined to work for command recording
+			let mimeType = 'audio/webm'; // Default fallback
+			if (this.recordingMimeType) {
+				// Use the same format that worked for command recording
+				mimeType = this.recordingMimeType;
+				console.log(`✅ [VoiceAssistant] Using established MIME type for wake word: ${mimeType}`);
+			} else {
+				// First time setup - try to find a supported format
+				const mimeTypes = [
+					'audio/webm;codecs=opus',
+					'audio/webm',
+					'audio/ogg;codecs=opus'
+				];
+				
+				for (const testType of mimeTypes) {
+					if (MediaRecorder.isTypeSupported(testType)) {
+						mimeType = testType;
+						console.log(`✅ [VoiceAssistant] Using MIME type for wake word: ${mimeType}`);
+						break;
+					}
+				}
+			}
+
 			// Create MediaRecorder for continuous listening with optimized settings
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: 'audio/webm',
+				mimeType: mimeType,
 				audioBitsPerSecond: 16000 // Lower bitrate for faster processing
 			});
+			
+			// Store format for consistency 
+			this.wakeWordMimeType = mimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				if (event.data.size > 0) {
@@ -268,7 +294,7 @@ Module.register("voiceassistant", {
 			}
 
 			// Create audio blob
-			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+			const audioBlob = new Blob(this.audioChunks, { type: this.wakeWordMimeType });
 			this.audioChunks = []; // Clear for next recording
 
 			console.log(`📊 [VoiceAssistant] Audio blob size: ${audioBlob.size} bytes`);
@@ -390,10 +416,37 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
-			// Create MediaRecorder for command recording with time slices
+			// Try different MIME types in order of preference for better compatibility
+			const mimeTypes = [
+				'audio/wav',
+				'audio/webm;codecs=pcm',
+				'audio/webm;codecs=opus',
+				'audio/ogg;codecs=opus',
+				'audio/mp4',
+				'audio/webm'
+			];
+			
+			let selectedMimeType = null;
+			for (const mimeType of mimeTypes) {
+				if (MediaRecorder.isTypeSupported(mimeType)) {
+					selectedMimeType = mimeType;
+					console.log(`✅ [VoiceAssistant] Using MIME type: ${mimeType}`);
+					break;
+				}
+			}
+			
+			if (!selectedMimeType) {
+				selectedMimeType = 'audio/webm'; // Fallback
+				console.log("⚠️ [VoiceAssistant] No supported MIME types found, using fallback");
+			}
+
+			// Create MediaRecorder for command recording with compatible format
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: 'audio/webm;codecs=opus'
+				mimeType: selectedMimeType
 			});
+			
+			// Store the format for later processing
+			this.recordingMimeType = selectedMimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				console.log(`📊 [VoiceAssistant] Command audio chunk: ${event.data.size} bytes`);
@@ -468,7 +521,7 @@ Module.register("voiceassistant", {
 			}
 
 			// Create audio blob
-			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+			const audioBlob = new Blob(this.audioChunks, { type: this.recordingMimeType });
 			console.log(`📊 [VoiceAssistant] Command audio blob size: ${audioBlob.size} bytes`);
 			
 			if (audioBlob.size === 0) {
@@ -481,7 +534,32 @@ Module.register("voiceassistant", {
 			// Add delay to ensure audio is complete
 			await new Promise(resolve => setTimeout(resolve, 100));
 			
-			// Convert to WAV format for Vosk with better error handling
+			// Handle different audio formats
+			console.log(`🎵 [VoiceAssistant] Processing ${this.recordingMimeType} audio`);
+			
+			// If we got WAV directly, use it as-is
+			if (this.recordingMimeType === 'audio/wav') {
+				console.log("✅ [VoiceAssistant] Using native WAV format");
+				const reader = new FileReader();
+				reader.onload = () => {
+					const audioData = reader.result;
+					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of WAV data to Vosk...`);
+					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
+						audioData: audioData,
+						isCommand: true,
+						originalFormat: 'wav'
+					});
+				};
+				reader.onerror = () => {
+					console.error("❌ [VoiceAssistant] FileReader error");
+					this.setState("waiting");
+					this.isProcessing = false;
+				};
+				reader.readAsArrayBuffer(audioBlob);
+				return;
+			}
+			
+			// Try client-side conversion to WAV first
 			let wavBlob;
 			try {
 				wavBlob = await this.convertToWav(audioBlob);
@@ -490,36 +568,54 @@ Module.register("voiceassistant", {
 				if (wavBlob.size === 0) {
 					throw new Error("WAV conversion produced empty file");
 				}
-			} catch (conversionError) {
-				console.error("❌ [VoiceAssistant] WAV conversion failed:", conversionError);
-				this.setState("waiting");
-				this.isProcessing = false;
 				
-				// Show error message to user
-				this.sendSocketNotification("SPEECH_ERROR", {
-					error: "Audio conversion failed",
-					userMessage: "Sorry, I couldn't process your audio. Please try again."
-				});
-				return;
+				// Send converted WAV
+				const reader = new FileReader();
+				reader.onload = () => {
+					const audioData = reader.result;
+					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of converted WAV to Vosk...`);
+					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
+						audioData: audioData,
+						isCommand: true,
+						originalFormat: 'wav'
+					});
+				};
+				reader.onerror = () => {
+					console.error("❌ [VoiceAssistant] FileReader error");
+					this.setState("waiting");
+					this.isProcessing = false;
+				};
+				reader.readAsArrayBuffer(wavBlob);
+				
+			} catch (conversionError) {
+				console.error("❌ [VoiceAssistant] Client-side conversion failed:", conversionError.message);
+				console.log("🔄 [VoiceAssistant] Trying server-side conversion fallback...");
+				
+				// Fallback: send original audio to server for conversion
+				const reader = new FileReader();
+				reader.onload = () => {
+					const audioData = reader.result;
+					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of ${this.recordingMimeType} to server for conversion...`);
+					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
+						audioData: audioData,
+						isCommand: true,
+						originalFormat: this.recordingMimeType,
+						needsConversion: true
+					});
+				};
+				reader.onerror = () => {
+					console.error("❌ [VoiceAssistant] FileReader error on fallback");
+					this.setState("waiting");
+					this.isProcessing = false;
+					
+					// Show error message to user
+					this.sendSocketNotification("SPEECH_ERROR", {
+						error: "Audio processing failed",
+						userMessage: "Sorry, I couldn't process your audio. Please try again."
+					});
+				};
+				reader.readAsArrayBuffer(audioBlob);
 			}
-			
-			// Send to node helper for Vosk transcription
-			const reader = new FileReader();
-			reader.onload = () => {
-				const audioData = reader.result;
-				console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes to Vosk for command transcription...`);
-				this.sendSocketNotification("VOSK_TRANSCRIBE", { 
-					audioData: audioData,
-					isCommand: true,
-					originalFormat: 'wav'
-				});
-			};
-			reader.onerror = () => {
-				console.error("❌ [VoiceAssistant] FileReader error");
-				this.setState("waiting");
-				this.isProcessing = false;
-			};
-			reader.readAsArrayBuffer(wavBlob);
 			
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Error processing command recording:", error);

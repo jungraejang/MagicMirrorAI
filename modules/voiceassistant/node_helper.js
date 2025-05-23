@@ -27,7 +27,7 @@ module.exports = NodeHelper.create({
 				break;
 
 			case "VOSK_TRANSCRIBE":
-				this.transcribeWithVosk(payload.audioData, payload.isCommand, payload.originalFormat);
+				this.transcribeWithVosk(payload.audioData, payload.isCommand, payload.originalFormat, payload.needsConversion);
 				break;
 				
 			case "VOSK_WAKE_WORD":
@@ -37,21 +37,36 @@ module.exports = NodeHelper.create({
 		}
 	},
 
-	async transcribeWithVosk(audioData, isCommand = false, originalFormat = 'wav') {
+	async transcribeWithVosk(audioData, isCommand = false, originalFormat = 'wav', needsConversion = false) {
 		try {
 			const logPrefix = isCommand ? "Command" : "Wake word";
-			console.log(`🎙️ [${this.name}] Sending ${logPrefix.toLowerCase()} audio to Vosk (${originalFormat} format)...`);
+			console.log(`🎙️ [${this.name}] Processing ${logPrefix.toLowerCase()} audio (${originalFormat} format, needsConversion: ${needsConversion})...`);
+			
+			let processedAudioData = audioData;
+			
+			// Handle server-side conversion if needed
+			if (needsConversion && originalFormat !== 'wav') {
+				console.log(`🔄 [${this.name}] Attempting server-side conversion from ${originalFormat} to WAV...`);
+				try {
+					processedAudioData = await this.convertAudioToWav(audioData, originalFormat);
+					console.log(`✅ [${this.name}] Server-side conversion successful`);
+				} catch (conversionError) {
+					console.error(`❌ [${this.name}] Server-side conversion failed:`, conversionError.message);
+					this.sendSocketNotification("VOSK_TRANSCRIPTION", {
+						success: false,
+						error: `Audio conversion failed: ${conversionError.message}`
+					});
+					return;
+				}
+			}
 			
 			const voskUrl = "http://localhost:5000/transcribe";
 			
-			// If original format was WebM, we might need different handling
-			const contentType = originalFormat === 'webm' ? 'audio/webm' : 'audio/wav';
-			
-			const response = await axios.post(voskUrl, audioData, {
+			const response = await axios.post(voskUrl, processedAudioData, {
 				headers: {
-					'Content-Type': contentType,
+					'Content-Type': 'audio/wav',
 				},
-				timeout: isCommand ? 15000 : 10000  // Longer timeout for command transcription
+				timeout: isCommand ? 15000 : 10000
 			});
 
 			if (response.data.success) {
@@ -99,6 +114,95 @@ module.exports = NodeHelper.create({
 				error: errorMessage
 			});
 		}
+	},
+
+	async convertAudioToWav(audioData, originalFormat) {
+		const fs = require('fs').promises;
+		const path = require('path');
+		const { spawn } = require('child_process');
+		const os = require('os');
+		
+		// Create temporary files
+		const tempDir = os.tmpdir();
+		const inputFile = path.join(tempDir, `vosk_input_${Date.now()}.${this.getFileExtension(originalFormat)}`);
+		const outputFile = path.join(tempDir, `vosk_output_${Date.now()}.wav`);
+		
+		try {
+			// Write input audio data to temporary file
+			await fs.writeFile(inputFile, Buffer.from(audioData));
+			console.log(`📄 [${this.name}] Wrote ${originalFormat} file: ${inputFile}`);
+			
+			// Use ffmpeg to convert to WAV
+			const ffmpegArgs = [
+				'-i', inputFile,
+				'-acodec', 'pcm_s16le',
+				'-ar', '16000',
+				'-ac', '1',
+				'-y',  // Overwrite output file
+				outputFile
+			];
+			
+			console.log(`🔄 [${this.name}] Running ffmpeg conversion...`);
+			await this.runCommand('ffmpeg', ffmpegArgs);
+			
+			// Read converted WAV file
+			const wavData = await fs.readFile(outputFile);
+			console.log(`✅ [${this.name}] Conversion complete, WAV size: ${wavData.length} bytes`);
+			
+			// Clean up temporary files
+			await fs.unlink(inputFile).catch(() => {});
+			await fs.unlink(outputFile).catch(() => {});
+			
+			return wavData;
+			
+		} catch (error) {
+			// Clean up temporary files on error
+			await fs.unlink(inputFile).catch(() => {});
+			await fs.unlink(outputFile).catch(() => {});
+			throw error;
+		}
+	},
+
+	runCommand(command, args) {
+		return new Promise((resolve, reject) => {
+			const process = spawn(command, args);
+			let stdout = '';
+			let stderr = '';
+			
+			process.stdout.on('data', (data) => {
+				stdout += data.toString();
+			});
+			
+			process.stderr.on('data', (data) => {
+				stderr += data.toString();
+			});
+			
+			process.on('close', (code) => {
+				if (code === 0) {
+					resolve(stdout);
+				} else {
+					reject(new Error(`${command} failed with code ${code}: ${stderr}`));
+				}
+			});
+			
+			process.on('error', (error) => {
+				reject(new Error(`Failed to run ${command}: ${error.message}`));
+			});
+		});
+	},
+
+	getFileExtension(mimeType) {
+		const mimeToExt = {
+			'audio/webm': 'webm',
+			'audio/ogg': 'ogg',
+			'audio/mp4': 'm4a',
+			'audio/mpeg': 'mp3',
+			'audio/wav': 'wav'
+		};
+		
+		// Handle codec specifications
+		const baseMimeType = mimeType.split(';')[0];
+		return mimeToExt[baseMimeType] || 'audio';
 	},
 
 	async processLLMRequest(userInput, conversation) {
