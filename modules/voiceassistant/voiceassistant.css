@@ -5,40 +5,58 @@
   backdrop-filter: blur(5px);
   max-width: 400px;
   margin: 0 auto;
+  text-align: center;
+  color: #fff;
+  font-family: "Roboto", sans-serif;
 }
 
 .status-indicator {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  margin-bottom: 15px;
+  padding: 15px 20px;
+  border-radius: 25px;
+  font-size: 16px;
   transition: all 0.3s ease;
+  cursor: pointer;
+  min-width: 200px;
+  justify-content: center;
+}
+
+.status-indicator:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.3);
+}
+
+.status-indicator.initializing {
+  background: linear-gradient(45deg, #3498db, #2980b9);
+  border: 2px solid #3498db;
 }
 
 .status-indicator.waiting {
-  background: rgba(128, 128, 128, 0.2);
-  color: #888;
+  background: linear-gradient(45deg, #27ae60, #2ecc71);
+  border: 2px solid #27ae60;
 }
 
 .status-indicator.listening {
-  background: rgba(0, 150, 255, 0.2);
-  color: #0096ff;
-  border: 2px solid rgba(0, 150, 255, 0.3);
+  background: linear-gradient(45deg, #e74c3c, #c0392b);
+  border: 2px solid #e74c3c;
+  animation: glow 1.5s ease-in-out infinite alternate;
 }
 
 .status-indicator.processing {
-  background: rgba(255, 165, 0, 0.2);
-  color: #ffa500;
-  border: 2px solid rgba(255, 165, 0, 0.3);
+  background: linear-gradient(45deg, #f39c12, #e67e22);
+  border: 2px solid #f39c12;
 }
 
 .status-indicator.responding {
-  background: rgba(0, 255, 0, 0.2);
-  color: #00ff00;
-  border: 2px solid rgba(0, 255, 0, 0.3);
+  background: linear-gradient(45deg, #9b59b6, #8e44ad);
+  border: 2px solid #9b59b6;
+}
+
+.status-indicator.error {
+  background: linear-gradient(45deg, #e74c3c, #c0392b);
+  border: 2px solid #e74c3c;
 }
 
 .status-indicator i {
@@ -47,24 +65,40 @@
 }
 
 .status-text {
-  font-size: 16px;
-  font-weight: 300;
+  font-weight: 500;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 /* Animations */
+@keyframes glow {
+  from {
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+  }
+  to {
+    box-shadow:
+      0 0 20px rgba(231, 76, 60, 0.8),
+      0 0 30px rgba(231, 76, 60, 0.6);
+  }
+}
+
+.pulse {
+  animation: pulse 1s ease-in-out infinite;
+}
+
 @keyframes pulse {
   0% {
     transform: scale(1);
-    opacity: 1;
   }
   50% {
     transform: scale(1.1);
-    opacity: 0.7;
   }
   100% {
     transform: scale(1);
-    opacity: 1;
   }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
@@ -76,51 +110,61 @@
   }
 }
 
-.pulse {
-  animation: pulse 1.5s infinite;
-}
-
-.spin {
-  animation: spin 2s linear infinite;
-}
-
 /* Conversation display */
-.conversation {
-  margin-top: 15px;
-  max-height: 200px;
-  overflow-y: auto;
+.conversation-display {
+  margin-top: 20px;
+  max-width: 400px;
+  text-align: left;
 }
 
 .user-message,
-.assistant-message {
-  margin: 8px 0;
-  padding: 8px 12px;
-  border-radius: 8px;
+.assistant-message,
+.current-processing {
+  margin: 10px 0;
+  padding: 12px 16px;
+  border-radius: 18px;
   font-size: 14px;
   line-height: 1.4;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .user-message {
-  background: rgba(0, 150, 255, 0.15);
-  color: #ccc;
-  border-left: 3px solid #0096ff;
+  background: linear-gradient(135deg, #4caf50, #45a049);
+  color: white;
+  margin-left: 20px;
+  border-bottom-right-radius: 4px;
 }
 
 .assistant-message {
-  background: rgba(0, 255, 0, 0.15);
-  color: #ccc;
-  border-left: 3px solid #00ff00;
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  color: white;
+  margin-right: 20px;
+  border-bottom-left-radius: 4px;
+}
+
+.current-processing {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  color: white;
+  margin-left: 20px;
+  border-bottom-right-radius: 4px;
+  animation: processing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes processing-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .user-message i,
-.assistant-message i {
-  margin-top: 2px;
+.assistant-message i,
+.current-processing i {
+  margin-right: 8px;
   font-size: 12px;
-  opacity: 0.7;
-  flex-shrink: 0;
 }
 
 /* Scrollbar styling */
@@ -157,10 +201,17 @@
     font-size: 14px;
   }
 
+  .conversation-display {
+    max-width: 300px;
+  }
+
   .user-message,
-  .assistant-message {
+  .assistant-message,
+  .current-processing {
     font-size: 12px;
-    padding: 6px 10px;
+    padding: 10px 14px;
+    margin-left: 10px;
+    margin-right: 10px;
   }
 }
 

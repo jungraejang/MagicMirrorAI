@@ -33,6 +33,9 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 		this.initializationComplete = false;
 		this.manualMode = false;
+		this.currentUserInput = "";
+		this.wakeWordAttempts = 0;
+		this.maxWakeWordAttempts = 2;
 		
 		// Send config to node helper
 		this.sendSocketNotification("CONFIG", this.config);
@@ -113,6 +116,39 @@ Module.register("voiceassistant", {
 		statusDiv.appendChild(statusText);
 		wrapper.appendChild(statusDiv);
 
+		// Add conversation display
+		if (this.conversation && this.conversation.length > 0) {
+			const conversationDiv = document.createElement("div");
+			conversationDiv.className = "conversation-display";
+			
+			// Show recent conversations (last 3)
+			const recentConversations = this.conversation.slice(-3);
+			
+			recentConversations.forEach((exchange, index) => {
+				// User message
+				const userDiv = document.createElement("div");
+				userDiv.className = "user-message";
+				userDiv.innerHTML = `<i class="fas fa-user"></i> ${exchange.user}`;
+				conversationDiv.appendChild(userDiv);
+				
+				// Assistant response
+				const assistantDiv = document.createElement("div");
+				assistantDiv.className = "assistant-message";
+				assistantDiv.innerHTML = `<i class="fas fa-robot"></i> ${exchange.assistant}`;
+				conversationDiv.appendChild(assistantDiv);
+			});
+			
+			wrapper.appendChild(conversationDiv);
+		}
+
+		// Show current processing message if any
+		if (this.currentUserInput && this.currentState === "processing") {
+			const currentDiv = document.createElement("div");
+			currentDiv.className = "current-processing";
+			currentDiv.innerHTML = `<i class="fas fa-user"></i> ${this.currentUserInput}`;
+			wrapper.appendChild(currentDiv);
+		}
+
 		return wrapper;
 	},
 
@@ -163,6 +199,7 @@ Module.register("voiceassistant", {
 				console.log("✅ [VoiceAssistant] Wake word detection working");
 				this.isWakeWordActive = true;
 				this.wakeWordWorking = true;
+				this.wakeWordAttempts = 0; // Reset attempts on success
 				this.updateDom();
 			};
 
@@ -179,11 +216,21 @@ Module.register("voiceassistant", {
 			this.wakeWordRecognition.onerror = (event) => {
 				console.error(`❌ [VoiceAssistant] Wake word error: ${event.error}`);
 				this.isWakeWordActive = false;
-				this.wakeWordWorking = false;
+				this.wakeWordAttempts++;
 				
 				if (event.error === 'network') {
-					console.log("🔄 [VoiceAssistant] Network error - switching to manual mode");
+					console.log("🌐 [VoiceAssistant] Network error - Web Speech API needs internet connection");
+				} else if (event.error === 'not-allowed') {
+					console.log("🎤 [VoiceAssistant] Microphone permission denied");
+				}
+				
+				// If we've tried too many times, switch to manual mode
+				if (this.wakeWordAttempts >= this.maxWakeWordAttempts) {
+					console.log(`🔄 [VoiceAssistant] Wake word failed ${this.wakeWordAttempts} times - switching to manual mode`);
+					this.wakeWordWorking = false;
 					this.manualMode = true;
+				} else {
+					console.log(`🔄 [VoiceAssistant] Wake word attempt ${this.wakeWordAttempts}/${this.maxWakeWordAttempts} failed`);
 				}
 				
 				this.updateDom();
@@ -193,16 +240,20 @@ Module.register("voiceassistant", {
 				console.log("🔇 [VoiceAssistant] Wake word detection ended");
 				this.isWakeWordActive = false;
 				
-				// Only try to restart ONCE if we're in waiting state and wake word was working
-				if (this.currentState === "waiting" && this.wakeWordWorking && !this.manualMode) {
-					console.log("🔄 [VoiceAssistant] One-time wake word restart attempt");
+				// Only try to restart if we haven't exceeded attempts and we're still in waiting state
+				if (this.currentState === "waiting" && 
+					this.wakeWordWorking && 
+					!this.manualMode && 
+					this.wakeWordAttempts < this.maxWakeWordAttempts) {
+					
+					console.log("🔄 [VoiceAssistant] Restarting wake word detection...");
 					setTimeout(() => {
 						if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 							this.startWakeWordDetection();
 						}
-					}, 3000);
+					}, 2000);
 				} else {
-					console.log("🔄 [VoiceAssistant] Switching to manual mode");
+					console.log("🔄 [VoiceAssistant] Wake word detection stopped - using manual mode");
 					this.manualMode = true;
 					this.updateDom();
 				}
@@ -458,6 +509,7 @@ Module.register("voiceassistant", {
 	processUserInput(userInput) {
 		this.setState("processing");
 		this.isProcessing = true;
+		this.currentUserInput = userInput;
 
 		this.sendSocketNotification("PROCESS_SPEECH", {
 			userInput: userInput,
@@ -512,11 +564,13 @@ Module.register("voiceassistant", {
 						console.log("⚠️ [VoiceAssistant] Empty transcription, returning to waiting");
 						this.setState("waiting");
 						this.isProcessing = false;
+						this.currentUserInput = "";
 					}
 				} else {
 					console.error(`❌ [VoiceAssistant] Vosk error: ${payload.error}`);
 					this.setState("waiting");
 					this.isProcessing = false;
+					this.currentUserInput = "";
 				}
 				break;
 
@@ -534,6 +588,7 @@ Module.register("voiceassistant", {
 					this.conversation = this.conversation.slice(-this.config.maxConversationHistory);
 				}
 
+				this.currentUserInput = ""; // Clear current input
 				this.updateDom(300);
 				this.speak(payload.response);
 				break;
@@ -542,6 +597,7 @@ Module.register("voiceassistant", {
 				console.error("❌ [VoiceAssistant] LLM error:", payload);
 				this.setState("waiting");
 				this.isProcessing = false;
+				this.currentUserInput = "";
 				break;
 		}
 	},
