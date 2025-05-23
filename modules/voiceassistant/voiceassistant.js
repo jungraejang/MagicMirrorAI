@@ -18,7 +18,7 @@ Module.register("voiceassistant", {
 
 	start() {
 		Log.info(`Starting module: ${this.name}`);
-		console.log("🚀 [VoiceAssistant] Module starting (Conservative Hybrid)...");
+		console.log("🚀 [VoiceAssistant] Module starting (Vosk-only mode)...");
 		
 		this.isListening = false;
 		this.isProcessing = false;
@@ -27,7 +27,8 @@ Module.register("voiceassistant", {
 		this.conversation = [];
 		this.mediaRecorder = null;
 		this.audioStream = null;
-		this.wakeWordRecognition = null;
+		this.wakeWordInterval = null;
+		this.wakeWordRestartInterval = null;
 		this.displayTimer = null;
 		this.currentState = "initializing";
 		this.audioChunks = [];
@@ -40,7 +41,7 @@ Module.register("voiceassistant", {
 		this.sendSocketNotification("CONFIG", this.config);
 		console.log("📡 [VoiceAssistant] Config sent to node helper");
 		
-		// Initialize hybrid mode
+		// Initialize Vosk mode
 		setTimeout(() => {
 			this.initHybridMode();
 		}, 2000);
@@ -157,184 +158,161 @@ Module.register("voiceassistant", {
 			return;
 		}
 
-		console.log("🔧 [VoiceAssistant] Initializing hybrid mode...");
+		console.log("🔧 [VoiceAssistant] Initializing Vosk-only mode...");
 		
 		try {
 			// Initialize microphone for Vosk recording
 			await this.initAudioRecording();
 			
-			// Try to initialize wake word detection (but don't force it)
-			this.tryInitWakeWordDetection();
+			// Start continuous Vosk wake word detection
+			this.startVoskWakeWordDetection();
 			
 			this.initializationComplete = true;
 			this.setState("waiting");
 			
 		} catch (error) {
-			console.error("❌ [VoiceAssistant] Failed to initialize hybrid mode:", error);
+			console.error("❌ [VoiceAssistant] Failed to initialize Vosk mode:", error);
 			this.currentState = "error";
 			this.manualMode = true;
 			this.updateDom();
 		}
 	},
 
-	tryInitWakeWordDetection() {
-		console.log("🎯 [VoiceAssistant] Attempting wake word detection...");
+	startVoskWakeWordDetection() {
+		console.log("🎯 [VoiceAssistant] Starting Vosk wake word detection...");
 		
-		if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-			console.log("⚠️ [VoiceAssistant] Web Speech API not supported, using manual mode");
-			this.manualMode = true;
+		if (this.isListening || this.isProcessing) {
+			console.log("⚠️ [VoiceAssistant] Already listening or processing, skipping wake word start");
 			return;
 		}
 
-		try {
-			const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-			
-			this.wakeWordRecognition = new SpeechRecognition();
-			this.wakeWordRecognition.continuous = true;
-			this.wakeWordRecognition.interimResults = false;
-			this.wakeWordRecognition.lang = this.config.language;
-
-			this.wakeWordRecognition.onstart = () => {
-				console.log("✅ [VoiceAssistant] Wake word detection STARTED successfully");
-				this.isWakeWordActive = true;
-				this.wakeWordWorking = true;
-				this.wakeWordAttempts = 0; // Reset attempts on success
-				this.updateDom();
-			};
-
-			this.wakeWordRecognition.onresult = (event) => {
-				const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-				console.log(`🗣️ [VoiceAssistant] Wake word heard: "${transcript}"`);
-				
-				if (transcript.includes(this.config.wakeWord.toLowerCase())) {
-					console.log("🎯 [VoiceAssistant] Wake word detected!");
-					this.onWakeWordDetected();
-				}
-			};
-
-			this.wakeWordRecognition.onerror = (event) => {
-				console.error(`❌ [VoiceAssistant] Wake word error: ${event.error}`);
-				this.isWakeWordActive = false;
-				this.wakeWordAttempts++;
-				
-				if (event.error === 'network') {
-					console.log("🌐 [VoiceAssistant] Network error - Web Speech API needs internet connection");
-				} else if (event.error === 'not-allowed') {
-					console.log("🎤 [VoiceAssistant] Microphone permission denied");
-				} else if (event.error === 'service-not-allowed') {
-					console.log("🚫 [VoiceAssistant] Speech service not allowed");
-				} else if (event.error === 'audio-capture') {
-					console.log("🎤 [VoiceAssistant] Audio capture failed");
-				} else {
-					console.log(`⚠️ [VoiceAssistant] Wake word error: ${event.error}`);
-				}
-				
-				// Increase max attempts to be more persistent
-				if (this.wakeWordAttempts >= 5) {  // Increased from 2 to 5
-					console.log(`🔄 [VoiceAssistant] Wake word failed ${this.wakeWordAttempts} times - switching to manual mode`);
-					this.wakeWordWorking = false;
-					this.manualMode = true;
-				} else {
-					console.log(`🔄 [VoiceAssistant] Wake word attempt ${this.wakeWordAttempts}/5 failed, will retry...`);
-				}
-				
-				this.updateDom();
-			};
-
-			this.wakeWordRecognition.onend = () => {
-				console.log("🔇 [VoiceAssistant] Wake word detection ended");
-				this.isWakeWordActive = false;
-				
-				// Be more persistent with retries
-				if (this.currentState === "waiting" && 
-					this.wakeWordWorking && 
-					!this.manualMode && 
-					this.wakeWordAttempts < 5) {  // Increased from 2 to 5
-					
-					console.log(`🔄 [VoiceAssistant] Restarting wake word detection (attempt ${this.wakeWordAttempts + 1}/5)...`);
-					setTimeout(() => {
-						if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
-							this.startWakeWordDetection();
-						}
-					}, 3000);  // Increased delay to 3 seconds
-				} else {
-					console.log("🔄 [VoiceAssistant] Wake word detection stopped - using manual mode");
-					this.manualMode = true;
-					this.updateDom();
-				}
-			};
-
-			// Try to start wake word detection
-			this.startWakeWordDetection();
-			
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] Wake word setup failed:", error);
-			this.manualMode = true;
-		}
+		this.isWakeWordActive = true;
+		this.wakeWordWorking = true;
+		this.manualMode = false;
+		
+		// Start continuous recording for wake word detection
+		this.startContinuousRecording();
+		this.updateDom();
 	},
 
-	startWakeWordDetection() {
-		console.log(`🔍 [VoiceAssistant] Checking wake word start conditions:`);
-		console.log(`  - isWakeWordActive: ${this.isWakeWordActive}`);
-		console.log(`  - wakeWordRecognition exists: ${!!this.wakeWordRecognition}`);
-		console.log(`  - currentState: ${this.currentState}`);
-		console.log(`  - manualMode: ${this.manualMode}`);
-		console.log(`  - wakeWordAttempts: ${this.wakeWordAttempts}`);
-		
-		if (this.isWakeWordActive) {
-			console.log("⚠️ [VoiceAssistant] Wake word already active, skipping start");
+	async startContinuousRecording() {
+		if (this.isListening || !this.audioStream) {
 			return;
 		}
+
+		console.log("🎤 [VoiceAssistant] Starting continuous recording for wake word...");
 		
-		if (!this.wakeWordRecognition) {
-			console.log("⚠️ [VoiceAssistant] Wake word recognition not initialized");
-			return;
-		}
-		
-		if (this.currentState !== "waiting") {
-			console.log(`⚠️ [VoiceAssistant] Not in waiting state (current: ${this.currentState})`);
-			return;
-		}
-		
-		if (this.manualMode) {
-			console.log("⚠️ [VoiceAssistant] In manual mode, skipping wake word start");
-			return;
-		}
-		
+		this.isListening = true;
+		this.audioChunks = [];
+
 		try {
-			console.log("🎤 [VoiceAssistant] Starting wake word detection...");
-			this.wakeWordRecognition.start();
+			// Create MediaRecorder for continuous listening
+			this.mediaRecorder = new MediaRecorder(this.audioStream, {
+				mimeType: 'audio/webm'
+			});
+
+			this.mediaRecorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					this.audioChunks.push(event.data);
+				}
+			};
+
+			this.mediaRecorder.onstop = () => {
+				this.processContinuousRecording();
+			};
+
+			// Start recording
+			this.mediaRecorder.start();
+
+			// Process audio chunks every 3 seconds for wake word detection
+			this.wakeWordInterval = setInterval(() => {
+				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
+					this.mediaRecorder.requestData();
+				}
+			}, 3000);
+
+			// Stop and restart every 6 seconds to process audio
+			this.wakeWordRestartInterval = setInterval(() => {
+				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
+					this.mediaRecorder.stop();
+				}
+			}, 6000);
+
 		} catch (error) {
-			console.error("❌ [VoiceAssistant] Failed to start wake word:", error);
+			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
 			this.isWakeWordActive = false;
 			this.wakeWordWorking = false;
-			this.wakeWordAttempts++;
-			
-			if (this.wakeWordAttempts >= 5) {
-				console.log("🔄 [VoiceAssistant] Too many failed start attempts, switching to manual mode");
-				this.manualMode = true;
-			}
+			this.manualMode = true;
 			this.updateDom();
 		}
 	},
 
-	stopWakeWordDetection() {
-		if (this.wakeWordRecognition && this.isWakeWordActive) {
-			try {
-				this.wakeWordRecognition.stop();
-			} catch (error) {
-				console.log("⚠️ [VoiceAssistant] Wake word already stopped");
+	async processContinuousRecording() {
+		if (!this.isWakeWordActive) return;
+
+		console.log("🔄 [VoiceAssistant] Processing continuous audio for wake word...");
+		
+		try {
+			if (this.audioChunks.length === 0) {
+				this.restartContinuousRecording();
+				return;
 			}
+
+			// Create audio blob
+			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+			this.audioChunks = []; // Clear for next recording
+
+			if (audioBlob.size === 0) {
+				this.restartContinuousRecording();
+				return;
+			}
+			
+			// Convert to WAV format for Vosk
+			const wavBlob = await this.convertToWav(audioBlob);
+			
+			// Send to node helper for Vosk wake word detection
+			const reader = new FileReader();
+			reader.onload = () => {
+				const audioData = reader.result;
+				this.sendSocketNotification("VOSK_WAKE_WORD", { audioData: audioData });
+			};
+			reader.readAsArrayBuffer(wavBlob);
+			
+		} catch (error) {
+			console.error("❌ [VoiceAssistant] Error processing continuous recording:", error);
 		}
-		this.isWakeWordActive = false;
+		
+		// Restart continuous recording if still in wake word mode
+		this.restartContinuousRecording();
 	},
 
-	onWakeWordDetected() {
-		// Stop wake word detection
-		this.stopWakeWordDetection();
+	restartContinuousRecording() {
+		if (this.isWakeWordActive && !this.isProcessing) {
+			setTimeout(() => {
+				this.startContinuousRecording();
+			}, 100);
+		}
+	},
+
+	stopVoskWakeWordDetection() {
+		console.log("🛑 [VoiceAssistant] Stopping Vosk wake word detection...");
 		
-		// Start command recording with Vosk
-		this.startCommandRecording();
+		this.isWakeWordActive = false;
+		this.isListening = false;
+		
+		if (this.wakeWordInterval) {
+			clearInterval(this.wakeWordInterval);
+			this.wakeWordInterval = null;
+		}
+		
+		if (this.wakeWordRestartInterval) {
+			clearInterval(this.wakeWordRestartInterval);
+			this.wakeWordRestartInterval = null;
+		}
+		
+		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+			this.mediaRecorder.stop();
+		}
 	},
 
 	async initAudioRecording() {
@@ -370,7 +348,7 @@ Module.register("voiceassistant", {
 		console.log("🎤 [VoiceAssistant] Starting command recording...");
 		
 		// Stop wake word detection during command recording
-		this.stopWakeWordDetection();
+		this.stopVoskWakeWordDetection();
 		
 		this.setState("listening");
 		this.isListening = true;
@@ -564,11 +542,11 @@ Module.register("voiceassistant", {
 		}
 		
 		// Restart wake word detection when entering waiting state
-		if (newState === "waiting" && !this.isWakeWordActive && !this.manualMode && this.wakeWordRecognition) {
+		if (newState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 			setTimeout(() => {
 				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 					console.log("🔄 [VoiceAssistant] Auto-restarting wake word detection in waiting state");
-					this.startWakeWordDetection();
+					this.startVoskWakeWordDetection();
 				}
 			}, 500);
 		}
@@ -602,7 +580,7 @@ Module.register("voiceassistant", {
 			setTimeout(() => {
 				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 					console.log("🔄 [VoiceAssistant] Restarting wake word detection after speech");
-					this.startWakeWordDetection();
+					this.startVoskWakeWordDetection();
 				}
 			}, 1000);
 		};
@@ -610,8 +588,36 @@ Module.register("voiceassistant", {
 		speechSynthesis.speak(utterance);
 	},
 
+	onWakeWordDetected() {
+		console.log("🎯 [VoiceAssistant] Wake word successfully detected!");
+		
+		// Reset attempt counter on successful detection
+		this.wakeWordAttempts = 0;
+		
+		// Stop wake word detection
+		this.stopVoskWakeWordDetection();
+		
+		// Start command recording with Vosk
+		this.startCommandRecording();
+	},
+
 	socketNotificationReceived(notification, payload) {
 		switch (notification) {
+			case "VOSK_WAKE_WORD":
+				if (payload.success && payload.transcript) {
+					const transcript = payload.transcript.toLowerCase().trim();
+					console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
+					
+					// Check if wake word is in the transcript
+					if (transcript.includes(this.config.wakeWord.toLowerCase())) {
+						console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
+						this.onWakeWordDetected();
+					}
+				} else if (payload.error) {
+					console.log(`⚠️ [VoiceAssistant] Vosk wake word error: ${payload.error}`);
+				}
+				break;
+				
 			case "VOSK_TRANSCRIPTION":
 				if (payload.success) {
 					console.log(`🗣️ [VoiceAssistant] Vosk transcribed: "${payload.transcript}"`);
@@ -662,9 +668,10 @@ Module.register("voiceassistant", {
 		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
 			this.mediaRecorder.stop();
 		}
-		if (this.wakeWordRecognition) {
-			this.stopWakeWordDetection();
-		}
+		
+		// Clean up Vosk wake word detection
+		this.stopVoskWakeWordDetection();
+		
 		if (this.audioStream) {
 			this.audioStream.getTracks().forEach(track => track.stop());
 		}
