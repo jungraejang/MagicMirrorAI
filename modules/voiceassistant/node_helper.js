@@ -233,22 +233,37 @@ module.exports = NodeHelper.create({
 
 			if (response.data.success) {
 				const transcript = response.data.text.trim();
-				console.log(`🗣️ [${this.name}] Wake word audio transcribed: "${transcript}"`);
+				
+				// Handle silence as normal - don't log it as noise
+				if (transcript) {
+					console.log(`🗣️ [${this.name}] Wake word audio transcribed: "${transcript}"`);
+				}
 				
 				this.sendSocketNotification("VOSK_WAKE_WORD", {
 					success: true,
-					transcript: transcript
+					transcript: transcript // Can be empty for silence
 				});
 			} else {
-				// Don't log errors for wake word detection - it's continuous
-				this.sendSocketNotification("VOSK_WAKE_WORD", {
-					success: false,
-					error: response.data.error
-				});
+				// "No speech detected" is normal during continuous monitoring
+				if (response.data.error === "No speech detected") {
+					// Send success with empty transcript for silence
+					this.sendSocketNotification("VOSK_WAKE_WORD", {
+						success: true,
+						transcript: ""
+					});
+				} else {
+					// Only log actual errors
+					console.error(`❌ [${this.name}] Vosk wake word error:`, response.data.error);
+					this.sendSocketNotification("VOSK_WAKE_WORD", {
+						success: false,
+						error: response.data.error
+					});
+				}
 			}
 
 		} catch (error) {
-			// Don't log errors for wake word detection - it's continuous
+			// Only log connection errors, not speech detection issues
+			console.error(`❌ [${this.name}] Vosk service connection error:`, error.message);
 			this.sendSocketNotification("VOSK_WAKE_WORD", {
 				success: false,
 				error: `Vosk service error: ${error.message}`

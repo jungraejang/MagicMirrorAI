@@ -223,12 +223,12 @@ Module.register("voiceassistant", {
 			// Start recording
 			this.mediaRecorder.start();
 
-			// Simple approach: record for 4 seconds, then process and restart
+			// Simple approach: record for 5 seconds, then process and restart
 			this.wakeWordInterval = setTimeout(() => {
 				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
 					this.mediaRecorder.stop();
 				}
-			}, 4000); // Shorter 4-second chunks
+			}, 5000); // 5-second chunks for better speech detection
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
@@ -622,15 +622,20 @@ Module.register("voiceassistant", {
 	socketNotificationReceived(notification, payload) {
 		switch (notification) {
 			case "VOSK_WAKE_WORD":
-				if (payload.success && payload.transcript) {
+				if (payload.success) {
 					const transcript = payload.transcript.toLowerCase().trim();
-					console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
 					
-					// Check if wake word is in the transcript
-					if (transcript.includes(this.config.wakeWord.toLowerCase())) {
-						console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
-						this.onWakeWordDetected();
+					// Only log when there's actual speech detected
+					if (transcript) {
+						console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
+						
+						// Check if wake word is in the transcript
+						if (transcript.includes(this.config.wakeWord.toLowerCase())) {
+							console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
+							this.onWakeWordDetected();
+						}
 					}
+					// Silence (empty transcript) is normal - don't log anything
 				} else if (payload.error) {
 					console.log(`⚠️ [VoiceAssistant] Vosk wake word error: ${payload.error}`);
 				}
