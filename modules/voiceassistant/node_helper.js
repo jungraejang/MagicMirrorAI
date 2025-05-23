@@ -1,6 +1,10 @@
 const NodeHelper = require("node_helper");
 const axios = require("axios");
 const Log = require("logger");
+const fs = require('fs').promises;
+const path = require('path');
+const { spawn } = require('child_process');
+const os = require('os');
 
 module.exports = NodeHelper.create({
 	
@@ -117,11 +121,6 @@ module.exports = NodeHelper.create({
 	},
 
 	async convertAudioToWav(audioData, originalFormat) {
-		const fs = require('fs').promises;
-		const path = require('path');
-		const { spawn } = require('child_process');
-		const os = require('os');
-		
 		// Create temporary files
 		const tempDir = os.tmpdir();
 		const inputFile = path.join(tempDir, `vosk_input_${Date.now()}.${this.getFileExtension(originalFormat)}`);
@@ -130,7 +129,16 @@ module.exports = NodeHelper.create({
 		try {
 			// Write input audio data to temporary file
 			await fs.writeFile(inputFile, Buffer.from(audioData));
-			console.log(`📄 [${this.name}] Wrote ${originalFormat} file: ${inputFile}`);
+			console.log(`📄 [${this.name}] Wrote ${originalFormat} file: ${inputFile} (${audioData.byteLength} bytes)`);
+			
+			// Check if ffmpeg is available
+			try {
+				await this.runCommand('ffmpeg', ['-version']);
+				console.log(`✅ [${this.name}] ffmpeg is available`);
+			} catch (error) {
+				console.error(`❌ [${this.name}] ffmpeg not found:`, error.message);
+				throw new Error('ffmpeg is required for audio conversion but not installed. Please run: sudo apt install -y ffmpeg');
+			}
 			
 			// Use ffmpeg to convert to WAV
 			const ffmpegArgs = [
@@ -142,20 +150,30 @@ module.exports = NodeHelper.create({
 				outputFile
 			];
 			
-			console.log(`🔄 [${this.name}] Running ffmpeg conversion...`);
-			await this.runCommand('ffmpeg', ffmpegArgs);
+			console.log(`🔄 [${this.name}] Running ffmpeg conversion: ffmpeg ${ffmpegArgs.join(' ')}`);
+			const ffmpegOutput = await this.runCommand('ffmpeg', ffmpegArgs);
+			console.log(`📋 [${this.name}] ffmpeg output:`, ffmpegOutput);
+			
+			// Check if output file was created
+			try {
+				const stats = await fs.stat(outputFile);
+				console.log(`📊 [${this.name}] Output file size: ${stats.size} bytes`);
+			} catch (error) {
+				throw new Error(`ffmpeg conversion failed - output file not created: ${error.message}`);
+			}
 			
 			// Read converted WAV file
 			const wavData = await fs.readFile(outputFile);
 			console.log(`✅ [${this.name}] Conversion complete, WAV size: ${wavData.length} bytes`);
 			
 			// Clean up temporary files
-			await fs.unlink(inputFile).catch(() => {});
-			await fs.unlink(outputFile).catch(() => {});
+			await fs.unlink(inputFile).catch(err => console.warn(`⚠️ [${this.name}] Could not remove input file:`, err.message));
+			await fs.unlink(outputFile).catch(err => console.warn(`⚠️ [${this.name}] Could not remove output file:`, err.message));
 			
 			return wavData;
 			
 		} catch (error) {
+			console.error(`❌ [${this.name}] Audio conversion failed:`, error.message);
 			// Clean up temporary files on error
 			await fs.unlink(inputFile).catch(() => {});
 			await fs.unlink(outputFile).catch(() => {});
@@ -163,11 +181,19 @@ module.exports = NodeHelper.create({
 		}
 	},
 
-	runCommand(command, args) {
+	runCommand(command, args, timeout = 30000) {
 		return new Promise((resolve, reject) => {
+			console.log(`🔧 [${this.name}] Running: ${command} ${args.join(' ')}`);
+			
 			const process = spawn(command, args);
 			let stdout = '';
 			let stderr = '';
+			
+			// Set timeout
+			const timer = setTimeout(() => {
+				process.kill('SIGTERM');
+				reject(new Error(`Command timeout after ${timeout}ms: ${command}`));
+			}, timeout);
 			
 			process.stdout.on('data', (data) => {
 				stdout += data.toString();
@@ -178,14 +204,20 @@ module.exports = NodeHelper.create({
 			});
 			
 			process.on('close', (code) => {
+				clearTimeout(timer);
+				console.log(`📋 [${this.name}] Command finished with code ${code}`);
+				if (stderr) console.log(`📋 [${this.name}] stderr:`, stderr);
+				
 				if (code === 0) {
 					resolve(stdout);
 				} else {
-					reject(new Error(`${command} failed with code ${code}: ${stderr}`));
+					reject(new Error(`${command} failed with code ${code}. stderr: ${stderr}`));
 				}
 			});
 			
 			process.on('error', (error) => {
+				clearTimeout(timer);
+				console.error(`❌ [${this.name}] Process error:`, error.message);
 				reject(new Error(`Failed to run ${command}: ${error.message}`));
 			});
 		});
