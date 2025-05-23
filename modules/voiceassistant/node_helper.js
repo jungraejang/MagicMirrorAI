@@ -146,6 +146,14 @@ module.exports = NodeHelper.create({
 	},
 
 	cleanTextForSpeech(text) {
+		// Remove thinking tags and content
+		text = text.replace(/<think>.*?<\/think>/gs, '');
+		
+		// Remove other common LLM artifacts
+		text = text.replace(/<reasoning>.*?<\/reasoning>/gs, '');
+		text = text.replace(/\[thinking\].*?\[\/thinking\]/gs, '');
+		text = text.replace(/\*thinking\*.*?\*\/thinking\*/gs, '');
+		
 		// Remove markdown formatting
 		text = text.replace(/\*\*(.*?)\*\*/g, '$1'); // Bold
 		text = text.replace(/\*(.*?)\*/g, '$1'); // Italic
@@ -158,8 +166,11 @@ module.exports = NodeHelper.create({
 		// Replace URLs with "link"
 		text = text.replace(/https?:\/\/[^\s]+/g, 'link');
 		
-		// Normalize spaces
+		// Clean up extra whitespace and normalize
 		text = text.replace(/\s+/g, ' ').trim();
+		
+		// Remove empty lines
+		text = text.replace(/\n\s*\n/g, '\n');
 		
 		return text;
 	},
