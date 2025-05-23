@@ -1,10 +1,11 @@
 const NodeHelper = require("node_helper");
+const axios = require("axios");
 const Log = require("logger");
 
 module.exports = NodeHelper.create({
 	
 	start() {
-		Log.info(`Starting node helper for: ${this.name}`);
+		console.log(`🚀 [${this.name}] Node helper started`);
 		this.config = {};
 		this.conversationHistory = [];
 	},
@@ -13,143 +14,152 @@ module.exports = NodeHelper.create({
 		switch (notification) {
 			case "CONFIG":
 				this.config = payload;
-				Log.info(`Voice Assistant configured with LLM endpoint: ${this.config.llmEndpoint}`);
+				console.log(`⚙️ [${this.name}] Config received:`, this.config);
 				break;
 				
 			case "PROCESS_SPEECH":
-				this.processUserSpeech(payload.userInput, payload.conversation);
+				this.processLLMRequest(payload.userInput, payload.conversation);
+				break;
+
+			case "VOSK_TRANSCRIBE":
+				this.transcribeWithVosk(payload.audioData);
 				break;
 		}
 	},
 
-	async processUserSpeech(userInput, conversation) {
+	async transcribeWithVosk(audioData) {
 		try {
-			Log.info(`Processing user speech: "${userInput}"`);
+			console.log(`🎙️ [${this.name}] Sending audio to Vosk for transcription...`);
 			
-			// Build conversation context for LLM
-			const messages = this.buildConversationMessages(userInput, conversation);
+			const voskUrl = "http://localhost:5000/transcribe";
 			
-			// Send request to LLM
-			const response = await this.queryLLM(messages);
-			
-			// Send response back to frontend
-			this.sendSocketNotification("SPEECH_RESPONSE", {
-				userInput: userInput,
-				response: response
+			const response = await axios.post(voskUrl, audioData, {
+				headers: {
+					'Content-Type': 'audio/wav',
+				},
+				timeout: 10000
 			});
-			
+
+			if (response.data.success) {
+				const transcript = response.data.text.trim();
+				console.log(`🗣️ [${this.name}] Vosk transcribed: "${transcript}"`);
+				
+				if (transcript) {
+					this.sendSocketNotification("VOSK_TRANSCRIPTION", {
+						success: true,
+						transcript: transcript
+					});
+				} else {
+					this.sendSocketNotification("VOSK_TRANSCRIPTION", {
+						success: false,
+						error: "No speech detected"
+					});
+				}
+			} else {
+				console.error(`❌ [${this.name}] Vosk transcription failed:`, response.data.error);
+				this.sendSocketNotification("VOSK_TRANSCRIPTION", {
+					success: false,
+					error: response.data.error
+				});
+			}
+
 		} catch (error) {
-			Log.error("Error processing speech:", error);
+			console.error(`❌ [${this.name}] Vosk transcription error:`, error.message);
+			this.sendSocketNotification("VOSK_TRANSCRIPTION", {
+				success: false,
+				error: `Vosk service error: ${error.message}`
+			});
+		}
+	},
+
+	async processLLMRequest(userInput, conversation) {
+		try {
+			console.log(`🧠 [${this.name}] Processing: "${userInput}"`);
+
+			// Build conversation context
+			const messages = [
+				{
+					role: "system",
+					content: this.config.systemPrompt || "You are a helpful voice assistant."
+				}
+			];
+
+			// Add conversation history
+			if (conversation && conversation.length > 0) {
+				conversation.forEach(exchange => {
+					messages.push({ role: "user", content: exchange.user });
+					messages.push({ role: "assistant", content: exchange.assistant });
+				});
+			}
+
+			// Add current user input
+			messages.push({ role: "user", content: userInput });
+
+			const requestData = {
+				model: "local-model",
+				messages: messages,
+				temperature: 0.7,
+				max_tokens: 150
+			};
+
+			console.log(`📡 [${this.name}] Sending to LLM...`);
+
+			const response = await axios.post(this.config.llmEndpoint, requestData, {
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				timeout: 30000
+			});
+
+			if (response.data && response.data.choices && response.data.choices[0]) {
+				let assistantResponse = response.data.choices[0].message.content.trim();
+				
+				// Clean up response for speech synthesis
+				assistantResponse = this.cleanTextForSpeech(assistantResponse);
+				
+				console.log(`🤖 [${this.name}] LLM Response: "${assistantResponse}"`);
+				
+				this.sendSocketNotification("SPEECH_RESPONSE", {
+					userInput: userInput,
+					response: assistantResponse
+				});
+			} else {
+				throw new Error("Invalid response format from LLM");
+			}
+
+		} catch (error) {
+			console.error(`❌ [${this.name}] LLM Error:`, error.message);
+			
+			let errorMessage = "I'm sorry, I'm having trouble connecting to my brain right now.";
+			
+			if (error.code === 'ECONNREFUSED') {
+				errorMessage = "I can't reach the language model. Is it running?";
+			} else if (error.code === 'ETIMEDOUT') {
+				errorMessage = "The language model is taking too long to respond.";
+			}
+
 			this.sendSocketNotification("SPEECH_ERROR", {
 				error: error.message,
-				userInput: userInput
+				userMessage: errorMessage
 			});
 		}
 	},
 
-	buildConversationMessages(userInput, conversation) {
-		const messages = [];
-		
-		// Add system prompt
-		messages.push({
-			role: "system",
-			content: this.config.systemPrompt || "You are a helpful voice assistant for a smart mirror. Keep responses concise and conversational."
-		});
-		
-		// Add conversation history
-		conversation.forEach(exchange => {
-			if (exchange.user) {
-				messages.push({
-					role: "user",
-					content: exchange.user
-				});
-			}
-			if (exchange.assistant) {
-				messages.push({
-					role: "assistant",
-					content: exchange.assistant
-				});
-			}
-		});
-		
-		// Add current user input
-		messages.push({
-			role: "user",
-			content: userInput
-		});
-		
-		return messages;
-	},
-
-	async queryLLM(messages) {
-		const { default: fetch } = await import('undici');
-		
-		const requestBody = {
-			model: "gpt-3.5-turbo", // This can be any model name, local LLMs often ignore this
-			messages: messages,
-			max_tokens: 150,
-			temperature: 0.7,
-			stream: false
-		};
-
-		const response = await fetch(this.config.llmEndpoint, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify(requestBody)
-		});
-
-		if (!response.ok) {
-			throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
-		}
-
-		const data = await response.json();
-		
-		if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-			throw new Error("Invalid response format from LLM");
-		}
-
-		let assistantResponse = data.choices[0].message.content.trim();
-		
-		// Clean up response for voice synthesis
-		assistantResponse = this.cleanResponseForSpeech(assistantResponse);
-		
-		return assistantResponse;
-	},
-
-	cleanResponseForSpeech(text) {
+	cleanTextForSpeech(text) {
 		// Remove markdown formatting
-		text = text.replace(/\*\*(.*?)\*\*/g, '$1'); // Remove bold
-		text = text.replace(/\*(.*?)\*/g, '$1'); // Remove italics
-		text = text.replace(/`(.*?)`/g, '$1'); // Remove code blocks
-		text = text.replace(/#{1,6}\s/g, ''); // Remove headers
-		text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1'); // Remove links, keep text
+		text = text.replace(/\*\*(.*?)\*\*/g, '$1'); // Bold
+		text = text.replace(/\*(.*?)\*/g, '$1'); // Italic
+		text = text.replace(/`(.*?)`/g, '$1'); // Code
+		text = text.replace(/#{1,6}\s/g, ''); // Headers
 		
-		// Remove excessive punctuation that might affect speech
-		text = text.replace(/\.{2,}/g, '.'); // Multiple dots to single
-		text = text.replace(/!{2,}/g, '!'); // Multiple exclamations to single
-		text = text.replace(/\?{2,}/g, '?'); // Multiple questions to single
+		// Remove special characters that might interfere with speech
+		text = text.replace(/[#*_`]/g, '');
 		
-		// Replace some common abbreviations for better speech
-		text = text.replace(/\bw\//g, 'with ');
-		text = text.replace(/\bw\/o\b/g, 'without ');
-		text = text.replace(/\betc\./g, 'etcetera');
-		text = text.replace(/\be\.g\./g, 'for example');
-		text = text.replace(/\bi\.e\./g, 'that is');
+		// Replace URLs with "link"
+		text = text.replace(/https?:\/\/[^\s]+/g, 'link');
 		
-		// Ensure the response isn't too long for voice
-		const maxLength = 300;
-		if (text.length > maxLength) {
-			// Try to cut at a sentence boundary
-			const sentences = text.split(/[.!?]+/);
-			let result = '';
-			for (const sentence of sentences) {
-				if ((result + sentence).length > maxLength) break;
-				result += sentence + '. ';
-			}
-			text = result.trim();
-		}
+		// Normalize spaces
+		text = text.replace(/\s+/g, ' ').trim();
 		
 		return text;
 	},
