@@ -225,7 +225,7 @@ module.exports = NodeHelper.create({
 
 			const response = await axios.post(voskUrl, audioData, {
 				headers: { 'Content-Type': 'audio/wav' },
-				timeout: 10000
+				timeout: 15000
 			});
 
 			let detected = false;
@@ -236,6 +236,9 @@ module.exports = NodeHelper.create({
 				if (detected) {
 					console.log(`🎯 [${this.name}] Wake word detected in transcript: "${transcript}"`);
 				}
+			} else if (response.data.error && response.data.error.toLowerCase().includes('no speech')) {
+				// Not an error, just silence
+				// Leave detected=false and transcript=""
 			} else {
 				console.error(`❌ [${this.name}] Wake word check failed:`, response.data.error);
 			}

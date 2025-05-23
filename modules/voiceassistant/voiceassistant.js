@@ -39,6 +39,8 @@ Module.register("voiceassistant", {
 		// Offline wake word loop variables
 		this.wakeWordLoopActive = false;
 		this.wakeWordMediaRecorder = null;
+		// Flag to ensure one wake-word check at a time
+		this.wakeWordCheckInProgress = false;
 		
 		// Send config to node helper
 		this.sendSocketNotification("CONFIG", this.config);
@@ -615,9 +617,17 @@ Module.register("voiceassistant", {
 				break;
 
 			case "WAKE_WORD_RESULT":
+				// Mark check complete
+				this.wakeWordCheckInProgress = false;
+
 				if (payload.detected) {
 					console.log("🎯 [VoiceAssistant] Offline wake word detected!");
 					this.onWakeWordDetected();
+				} else {
+					// If still active, start next segment quickly
+					if (this.wakeWordLoopActive && this._wakeWordRecordSegment) {
+						setTimeout(this._wakeWordRecordSegment, 100);
+					}
 				}
 				break;
 		}
@@ -648,9 +658,15 @@ Module.register("voiceassistant", {
 
 		console.log("🎤 [VoiceAssistant] Starting offline wake word loop...");
 		this.wakeWordLoopActive = true;
+		this.wakeWordCheckInProgress = false;
 
 		const recordSegment = () => {
-			if (!this.wakeWordLoopActive || this.isListening || this.isProcessing) return;
+			if (!this.wakeWordLoopActive || this.isListening || this.isProcessing || this.wakeWordCheckInProgress) {
+				// Will retry later when eligible
+				return;
+			}
+
+			this.wakeWordCheckInProgress = true;
 
 			try {
 				this.wakeWordMediaRecorder = new MediaRecorder(this.audioStream, { mimeType: 'audio/webm' });
@@ -659,44 +675,46 @@ Module.register("voiceassistant", {
 					if (e.data.size > 0) chunks.push(e.data);
 				};
 				this.wakeWordMediaRecorder.onstop = async () => {
-					if (!this.wakeWordLoopActive) return;
 					const blob = new Blob(chunks, { type: 'audio/webm' });
-					if (blob.size > 0) {
-						try {
-							const wavBlob = await this.convertToWav(blob);
-							const reader = new FileReader();
-							reader.onload = () => {
-								const audioData = reader.result;
-								this.sendSocketNotification('WAKE_WORD_CHECK', {
-									audioData: audioData,
-									wakeWord: this.config.wakeWord.toLowerCase()
-								});
-							};
-							reader.readAsArrayBuffer(wavBlob);
-						} catch (err) {
-							console.error('❌ [VoiceAssistant] Wake word conversion error:', err);
-						}
+					if (blob.size === 0) {
+						this.wakeWordCheckInProgress = false;
+						// Schedule immediate retry
+						if (this.wakeWordLoopActive) setTimeout(recordSegment, 100);
+						return;
 					}
-
-					// Schedule next segment
-					if (this.wakeWordLoopActive) {
-						setTimeout(recordSegment, 200);
+					try {
+						const wavBlob = await this.convertToWav(blob);
+						const reader = new FileReader();
+						reader.onload = () => {
+							const audioData = reader.result;
+							this.sendSocketNotification('WAKE_WORD_CHECK', {
+								audioData: audioData,
+								wakeWord: this.config.wakeWord.toLowerCase()
+							});
+						};
+						reader.readAsArrayBuffer(wavBlob);
+					} catch (err) {
+						console.error('❌ [VoiceAssistant] Wake word conversion error:', err);
+						this.wakeWordCheckInProgress = false;
+						if (this.wakeWordLoopActive) setTimeout(recordSegment, 200);
 					}
 				};
 
 				this.wakeWordMediaRecorder.start();
-				// Stop after 1 second of audio
+				// Record 1 second
 				setTimeout(() => {
 					if (this.wakeWordMediaRecorder && this.wakeWordMediaRecorder.state === 'recording') {
 						this.wakeWordMediaRecorder.stop();
 					}
 				}, 1000);
-			} catch (error) {
-				console.error('❌ [VoiceAssistant] Wake word loop recorder error:', error);
+			} catch (err) {
+				console.error('❌ [VoiceAssistant] Wake word loop recorder error:', err);
 				this.wakeWordLoopActive = false;
 			}
 		};
 
+		// Save reference so we can call again from outside
+		this._wakeWordRecordSegment = recordSegment;
 		recordSegment();
 	},
 
@@ -704,6 +722,7 @@ Module.register("voiceassistant", {
 		if (!this.wakeWordLoopActive) return;
 		console.log('🔇 [VoiceAssistant] Stopping offline wake word loop');
 		this.wakeWordLoopActive = false;
+		this.wakeWordCheckInProgress = false;
 		if (this.wakeWordMediaRecorder && this.wakeWordMediaRecorder.state === 'recording') {
 			try {
 				this.wakeWordMediaRecorder.stop();
