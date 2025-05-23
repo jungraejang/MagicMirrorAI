@@ -215,37 +215,51 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
-			// Use the same MIME type that was determined to work for command recording
-			let mimeType = 'audio/webm'; // Default fallback
-			if (this.recordingMimeType) {
-				// Use the same format that worked for command recording
-				mimeType = this.recordingMimeType;
-				console.log(`✅ [VoiceAssistant] Using established MIME type for wake word: ${mimeType}`);
-			} else {
-				// First time setup - try to find a supported format
-				const mimeTypes = [
+			// Try different MIME types in order of preference for better compatibility
+			const mimeTypes = [
+				'audio/wav',
+				'audio/webm',  // Basic WebM without codec specification
+				'audio/ogg'    // Basic OGG without codec specification
+			];
+			
+			let selectedMimeType = null;
+			for (const mimeType of mimeTypes) {
+				if (MediaRecorder.isTypeSupported(mimeType)) {
+					selectedMimeType = mimeType;
+					console.log(`✅ [VoiceAssistant] Using MIME type: ${mimeType}`);
+					break;
+				}
+			}
+			
+			if (!selectedMimeType) {
+				// Try with codec specification as fallback
+				const codecMimeTypes = [
 					'audio/webm;codecs=opus',
-					'audio/webm',
 					'audio/ogg;codecs=opus'
 				];
 				
-				for (const testType of mimeTypes) {
-					if (MediaRecorder.isTypeSupported(testType)) {
-						mimeType = testType;
-						console.log(`✅ [VoiceAssistant] Using MIME type for wake word: ${mimeType}`);
+				for (const mimeType of codecMimeTypes) {
+					if (MediaRecorder.isTypeSupported(mimeType)) {
+						selectedMimeType = mimeType;
+						console.log(`⚠️ [VoiceAssistant] Using codec-specific MIME type: ${mimeType}`);
 						break;
 					}
 				}
 			}
+			
+			if (!selectedMimeType) {
+				selectedMimeType = 'audio/webm'; // Final fallback
+				console.log("⚠️ [VoiceAssistant] No supported MIME types found, using fallback");
+			}
 
 			// Create MediaRecorder for continuous listening with optimized settings
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: mimeType,
+				mimeType: selectedMimeType,
 				audioBitsPerSecond: 16000 // Lower bitrate for faster processing
 			});
 			
 			// Store format for consistency 
-			this.wakeWordMimeType = mimeType;
+			this.wakeWordMimeType = selectedMimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				if (event.data.size > 0) {
@@ -298,9 +312,16 @@ Module.register("voiceassistant", {
 			this.audioChunks = []; // Clear for next recording
 
 			console.log(`📊 [VoiceAssistant] Audio blob size: ${audioBlob.size} bytes`);
-
+			
 			if (audioBlob.size === 0) {
 				console.log("⚠️ [VoiceAssistant] Empty audio blob, restarting...");
+				this.restartContinuousRecording();
+				return;
+			}
+			
+			// Validate audio blob by checking if it has a reasonable size
+			if (audioBlob.size < 1000) {
+				console.log("⚠️ [VoiceAssistant] Audio blob too small, likely invalid");
 				this.restartContinuousRecording();
 				return;
 			}
@@ -419,11 +440,8 @@ Module.register("voiceassistant", {
 			// Try different MIME types in order of preference for better compatibility
 			const mimeTypes = [
 				'audio/wav',
-				'audio/webm;codecs=pcm',
-				'audio/webm;codecs=opus',
-				'audio/ogg;codecs=opus',
-				'audio/mp4',
-				'audio/webm'
+				'audio/webm',  // Basic WebM without codec specification
+				'audio/ogg'    // Basic OGG without codec specification
 			];
 			
 			let selectedMimeType = null;
@@ -436,7 +454,23 @@ Module.register("voiceassistant", {
 			}
 			
 			if (!selectedMimeType) {
-				selectedMimeType = 'audio/webm'; // Fallback
+				// Try with codec specification as fallback
+				const codecMimeTypes = [
+					'audio/webm;codecs=opus',
+					'audio/ogg;codecs=opus'
+				];
+				
+				for (const mimeType of codecMimeTypes) {
+					if (MediaRecorder.isTypeSupported(mimeType)) {
+						selectedMimeType = mimeType;
+						console.log(`⚠️ [VoiceAssistant] Using codec-specific MIME type: ${mimeType}`);
+						break;
+					}
+				}
+			}
+			
+			if (!selectedMimeType) {
+				selectedMimeType = 'audio/webm'; // Final fallback
 				console.log("⚠️ [VoiceAssistant] No supported MIME types found, using fallback");
 			}
 
@@ -526,6 +560,14 @@ Module.register("voiceassistant", {
 			
 			if (audioBlob.size === 0) {
 				console.log("⚠️ [VoiceAssistant] Empty command audio blob");
+				this.setState("waiting");
+				this.isProcessing = false;
+				return;
+			}
+			
+			// Validate audio blob by checking if it has a reasonable size
+			if (audioBlob.size < 1000) {
+				console.log("⚠️ [VoiceAssistant] Audio blob too small, likely invalid");
 				this.setState("waiting");
 				this.isProcessing = false;
 				return;

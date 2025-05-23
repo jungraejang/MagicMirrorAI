@@ -127,13 +127,28 @@ module.exports = NodeHelper.create({
 		const outputFile = path.join(tempDir, `vosk_output_${Date.now()}.wav`);
 		
 		try {
+			// Validate input data
+			if (!audioData || audioData.byteLength === 0) {
+				throw new Error('Empty audio data provided');
+			}
+			
+			if (audioData.byteLength < 1000) {
+				throw new Error(`Audio data too small (${audioData.byteLength} bytes) - likely corrupt`);
+			}
+			
 			// Write input audio data to temporary file
 			await fs.writeFile(inputFile, Buffer.from(audioData));
 			console.log(`📄 [${this.name}] Wrote ${originalFormat} file: ${inputFile} (${audioData.byteLength} bytes)`);
 			
+			// Validate that the file was written correctly
+			const inputStats = await fs.stat(inputFile);
+			if (inputStats.size !== audioData.byteLength) {
+				throw new Error(`File write failed - expected ${audioData.byteLength} bytes, got ${inputStats.size}`);
+			}
+			
 			// Check if ffmpeg is available
 			try {
-				await this.runCommand('ffmpeg', ['-version']);
+				await this.runCommand('ffmpeg', ['-version'], 5000); // Shorter timeout for version check
 				console.log(`✅ [${this.name}] ffmpeg is available`);
 			} catch (error) {
 				console.error(`❌ [${this.name}] ffmpeg not found:`, error.message);
