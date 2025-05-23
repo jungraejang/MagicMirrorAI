@@ -15,6 +15,7 @@ Module.register("voiceassistant", {
 
 	start() {
 		Log.info(`Starting module: ${this.name}`);
+		console.log("🚀 [VoiceAssistant] Module starting...");
 		
 		this.isListening = false;
 		this.isProcessing = false;
@@ -24,11 +25,41 @@ Module.register("voiceassistant", {
 		this.displayTimer = null;
 		this.currentState = "waiting"; // waiting, listening, processing, responding
 		
+		// Test microphone permissions first
+		this.testMicrophoneAccess();
+		
 		this.initSpeechRecognition();
 		this.startWakeWordDetection();
 		
 		// Send config to node helper
 		this.sendSocketNotification("CONFIG", this.config);
+		console.log("📡 [VoiceAssistant] Config sent to node helper");
+	},
+
+	async testMicrophoneAccess() {
+		console.log("🎤 [VoiceAssistant] Testing microphone access...");
+		
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			console.log("✅ [VoiceAssistant] Microphone access granted!");
+			console.log("🎤 [VoiceAssistant] Audio tracks:", stream.getAudioTracks());
+			
+			// Stop the stream
+			stream.getTracks().forEach(track => track.stop());
+			
+			return true;
+		} catch (error) {
+			console.error("❌ [VoiceAssistant] Microphone access denied:", error.name, error.message);
+			console.error("Full error:", error);
+			
+			// Show user-friendly error
+			this.sendNotification("SHOW_ALERT", {
+				type: "notification",
+				message: `Microphone error: ${error.message}. Please allow microphone access.`
+			});
+			
+			return false;
+		}
 	},
 
 	getStyles() {
@@ -105,8 +136,10 @@ Module.register("voiceassistant", {
 	},
 
 	initSpeechRecognition() {
+		console.log("🔧 [VoiceAssistant] Initializing speech recognition...");
+		
 		if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-			Log.error("Speech recognition not supported");
+			console.error("❌ [VoiceAssistant] Speech recognition not supported");
 			this.sendNotification("SHOW_ALERT", {
 				type: "notification",
 				message: "Speech recognition not supported in this browser"
@@ -114,88 +147,136 @@ Module.register("voiceassistant", {
 			return;
 		}
 
+		console.log("✅ [VoiceAssistant] Speech recognition supported");
 		const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 		
 		// Wake word detection
+		console.log("🎤 [VoiceAssistant] Setting up wake word detection...");
 		this.wakeWordRecognition = new SpeechRecognition();
 		this.wakeWordRecognition.continuous = true;
 		this.wakeWordRecognition.interimResults = false;
 		this.wakeWordRecognition.lang = this.config.language;
 
+		this.wakeWordRecognition.onstart = () => {
+			console.log("🟢 [VoiceAssistant] Wake word detection started");
+		};
+
 		this.wakeWordRecognition.onresult = (event) => {
 			const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
 			
-			if (this.config.debugMode) {
-				Log.info(`Wake word detection heard: "${transcript}"`);
-			}
-
+			console.log(`🗣️ [VoiceAssistant] Wake word detection heard: "${transcript}"`);
+			
 			if (transcript.includes(this.config.wakeWord.toLowerCase())) {
-				Log.info("Wake word detected!");
+				console.log("🎯 [VoiceAssistant] Wake word detected!");
 				this.startListening();
+			} else if (this.config.debugMode) {
+				console.log(`🔍 [VoiceAssistant] Not wake word (looking for: "${this.config.wakeWord}")`);
 			}
 		};
 
 		this.wakeWordRecognition.onerror = (event) => {
-			if (this.config.debugMode) {
-				Log.error("Wake word recognition error:", event.error);
+			console.error(`❌ [VoiceAssistant] Wake word recognition error: ${event.error}`);
+			console.error("Full error details:", event);
+			
+			// Try to restart after network errors
+			if (event.error === 'network') {
+				console.log("🔄 [VoiceAssistant] Network error - will retry in 5 seconds...");
+				setTimeout(() => {
+					if (this.currentState === "waiting") {
+						console.log("🔄 [VoiceAssistant] Retrying wake word detection...");
+						this.startWakeWordDetection();
+					}
+				}, 5000);
+			}
+		};
+
+		this.wakeWordRecognition.onend = () => {
+			console.log("🔴 [VoiceAssistant] Wake word detection ended");
+			if (this.currentState === "waiting") {
+				console.log("🔄 [VoiceAssistant] Restarting wake word detection...");
+				setTimeout(() => this.startWakeWordDetection(), 1000);
 			}
 		};
 
 		// Main speech recognition for commands
+		console.log("🎤 [VoiceAssistant] Setting up main speech recognition...");
 		this.recognition = new SpeechRecognition();
 		this.recognition.continuous = false;
 		this.recognition.interimResults = false;
 		this.recognition.lang = this.config.language;
 
+		this.recognition.onstart = () => {
+			console.log("🟢 [VoiceAssistant] Main recognition started - speak now!");
+		};
+
 		this.recognition.onresult = (event) => {
 			const transcript = event.results[0][0].transcript.trim();
-			Log.info(`Speech recognized: "${transcript}"`);
+			console.log(`🗣️ [VoiceAssistant] Speech recognized: "${transcript}"`);
 			this.processUserInput(transcript);
 		};
 
 		this.recognition.onerror = (event) => {
-			Log.error("Speech recognition error:", event.error);
+			console.error(`❌ [VoiceAssistant] Speech recognition error: ${event.error}`);
+			console.error("Full error details:", event);
 			this.setState("waiting");
 			this.startWakeWordDetection();
 		};
 
 		this.recognition.onend = () => {
+			console.log("🔴 [VoiceAssistant] Main recognition ended");
 			if (this.currentState === "listening") {
 				// If we're still in listening mode, restart listening
 				setTimeout(() => {
 					if (this.currentState === "listening") {
+						console.log("🔄 [VoiceAssistant] Restarting main recognition...");
 						this.recognition.start();
 					}
 				}, 100);
 			}
 		};
+		
+		console.log("✅ [VoiceAssistant] Speech recognition setup complete");
 	},
 
 	startWakeWordDetection() {
+		console.log("🚀 [VoiceAssistant] Attempting to start wake word detection...");
+		console.log(`🚀 [VoiceAssistant] Current state: ${this.currentState}`);
+		
 		if (this.wakeWordRecognition && this.currentState === "waiting") {
 			try {
+				console.log("🎯 [VoiceAssistant] Starting wake word recognition service...");
 				this.wakeWordRecognition.start();
 			} catch (error) {
-				if (this.config.debugMode) {
-					Log.error("Error starting wake word detection:", error);
-				}
+				console.error("❌ [VoiceAssistant] Error starting wake word detection:", error);
 				// Restart after a delay
-				setTimeout(() => this.startWakeWordDetection(), 1000);
+				setTimeout(() => {
+					console.log("🔄 [VoiceAssistant] Retrying wake word detection after error...");
+					this.startWakeWordDetection();
+				}, 1000);
 			}
+		} else {
+			console.log(`⚠️ [VoiceAssistant] Cannot start wake word detection - wakeWordRecognition: ${!!this.wakeWordRecognition}, state: ${this.currentState}`);
 		}
 	},
 
 	startListening() {
-		if (this.isListening || this.isProcessing) return;
+		console.log("🎤 [VoiceAssistant] Starting listening mode...");
+		
+		if (this.isListening || this.isProcessing) {
+			console.log(`⚠️ [VoiceAssistant] Already busy - isListening: ${this.isListening}, isProcessing: ${this.isProcessing}`);
+			return;
+		}
 
+		console.log("🛑 [VoiceAssistant] Stopping wake word detection...");
 		this.wakeWordRecognition.stop();
 		this.setState("listening");
 		this.isListening = true;
 
 		try {
+			console.log("🎯 [VoiceAssistant] Starting main recognition for user input...");
 			this.recognition.start();
 		} catch (error) {
-			Log.error("Error starting speech recognition:", error);
+			console.error("❌ [VoiceAssistant] Error starting speech recognition:", error);
 			this.setState("waiting");
 			this.startWakeWordDetection();
 		}
@@ -203,6 +284,7 @@ Module.register("voiceassistant", {
 		// Auto-timeout after 10 seconds
 		setTimeout(() => {
 			if (this.currentState === "listening") {
+				console.log("⏰ [VoiceAssistant] Listening timeout - stopping...");
 				this.stopListening();
 			}
 		}, 10000);
