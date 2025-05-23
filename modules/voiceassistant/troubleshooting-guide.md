@@ -12,7 +12,7 @@
     module: "voiceassistant",
     position: "top_right", // or any valid position
     config: {
-        llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
+        llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
         debugMode: true // IMPORTANT: Enable this for troubleshooting
     }
 }
@@ -33,7 +33,7 @@ Update your config to enable debug mode:
     module: "voiceassistant",
     position: "top_right",
     config: {
-        llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
+        llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
         debugMode: true,           // Enable debug logging
         enableDisplay: true,       // Make sure UI is visible
         wakeWord: "hello mirror"
@@ -108,13 +108,13 @@ From your Raspberry Pi, test the LLM connection:
 
 ```bash
 # Test basic connectivity
-ping -c 3 192.168.0.109
+ping -c 3 10.5.0.2
 
 # Test LLM endpoint
-curl -v http://192.168.0.109:1234/v1/models
+curl -v http://10.5.0.2:1234/v1/models
 
 # Test actual chat completion
-curl -X POST http://192.168.0.109:1234/v1/chat/completions \
+curl -X POST http://10.5.0.2:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "test",
@@ -181,11 +181,11 @@ arecord -l
 aplay /usr/share/sounds/alsa/Front_Left.wav
 
 # 2. Test network
-ping 192.168.0.109
-curl -I http://192.168.0.109:1234
+ping 10.5.0.2
+curl -I http://10.5.0.2:1234
 
 # 3. Test LLM
-curl -X POST http://192.168.0.109:1234/v1/chat/completions \
+curl -X POST http://10.5.0.2:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"test","messages":[{"role":"user","content":"test"}],"max_tokens":5}'
 
@@ -203,7 +203,7 @@ When working correctly, you should see:
 
 ```
 Starting module: voiceassistant
-Voice Assistant configured with LLM endpoint: http://192.168.0.109:1234/v1/chat/completions
+Voice Assistant configured with LLM endpoint: http://10.5.0.2:1234/v1/chat/completions
 Wake word detection heard: "hello mirror hi"
 Wake word detected!
 Speech recognized: "hi"
@@ -219,7 +219,7 @@ Try this minimal config first:
     module: "voiceassistant",
     position: "middle_center",
     config: {
-        llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
+        llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
         debugMode: true,
         enableDisplay: true,
         wakeWord: "hello mirror",

@@ -19,7 +19,7 @@ const voiceAssistantConfig = {
 		speechSynthesis: true, // Enable text-to-speech responses
 		
 		// LLM API configuration
-		llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
+		llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
 		
 		// Conversation settings
 		maxConversationHistory: 5, // Remember last 5 exchanges

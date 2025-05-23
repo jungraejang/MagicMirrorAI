@@ -2,13 +2,13 @@
 
 ## Your Network Configuration
 
-- **Desktop IP**: `192.168.0.109` (where LLM is running)
+- **Desktop IP**: `10.5.0.2` (where LLM is running)
 - **Network**: `192.168.0.x/24`
-- **LLM Endpoint**: `http://192.168.0.109:1234/v1/chat/completions`
+- **LLM Endpoint**: `http://10.5.0.2:1234/v1/chat/completions`
 
 ## Prerequisites
 
-1. **LLM Server**: Running on your desktop (192.168.0.109) on port 1234
+1. **LLM Server**: Running on your desktop (10.5.0.2) on port 1234
 2. **Raspberry Pi**: Connected to the same network (should get 192.168.0.x IP)
 3. **Firewall**: Desktop firewall should allow connections on port 1234
 
@@ -20,10 +20,10 @@ From your Raspberry Pi, test if you can reach your desktop:
 
 ```bash
 # Test basic connectivity
-ping 192.168.0.109
+ping 10.5.0.2
 
 # Test LLM port specifically
-curl -I http://192.168.0.109:1234
+curl -I http://10.5.0.2:1234
 ```
 
 ### 2. Configure Desktop Firewall
@@ -50,7 +50,7 @@ sudo iptables -A INPUT -p tcp --dport 1234 -j ACCEPT
 From Raspberry Pi, test the LLM endpoint:
 
 ```bash
-curl -X POST http://192.168.0.109:1234/v1/chat/completions \
+curl -X POST http://10.5.0.2:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "test",
@@ -93,7 +93,7 @@ Your MagicMirror config should include:
     module: "voiceassistant",
     position: "top_right",
     config: {
-        llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
+        llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
         debugMode: true // Enable for initial testing
     }
 }
@@ -120,7 +120,7 @@ Your MagicMirror config should include:
 ### Test Checklist
 
 ✅ Desktop LLM server running on port 1234  
-✅ Raspberry Pi can ping desktop (192.168.0.109)  
+✅ Raspberry Pi can ping desktop (10.5.0.2)  
 ✅ Firewall allows port 1234  
 ✅ LLM responds to curl test  
 ✅ MagicMirror config updated with correct IP  
@@ -129,7 +129,7 @@ Your MagicMirror config should include:
 ## Network Diagram
 
 ```
-Desktop (192.168.0.109)          Raspberry Pi (192.168.0.x)
+Desktop (10.5.0.2)          Raspberry Pi (192.168.0.x)
 ┌─────────────────────┐         ┌──────────────────────┐
 │                     │         │                      │
 │  LLM Server         │◄────────┤  MagicMirror²        │
