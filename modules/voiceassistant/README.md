@@ -14,7 +14,7 @@ A voice-controlled assistant module that integrates with your local LLM running 
 ## Prerequisites
 
 1. **Raspberry Pi 4** with microphone and speakers
-2. **Local LLM** running on your desktop at `http://10.5.0.2:1234/v1/chat/completions`
+2. **Local LLM** running on your desktop at `http://192.168.0.109:1234/v1/chat/completions`
 3. **Browser with Speech Recognition support** (Chrome/Chromium recommended)
 4. **Microphone permissions** enabled for the browser
 5. **Network connectivity** between Raspberry Pi and desktop
@@ -40,7 +40,7 @@ cd ~/MagicMirror/modules
         language: "en-US",
         enableDisplay: true,
         speechSynthesis: true,
-        llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
+        llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
         systemPrompt: "You are a helpful voice assistant for a smart mirror. Keep responses concise and conversational.",
         debugMode: false
     }
@@ -49,25 +49,25 @@ cd ~/MagicMirror/modules
 
 ## Configuration Options
 
-| Option                   | Type    | Default                                      | Description                      |
-| ------------------------ | ------- | -------------------------------------------- | -------------------------------- |
-| `wakeWord`               | String  | `"hello mirror"`                             | Phrase to activate the assistant |
-| `language`               | String  | `"en-US"`                                    | Language for speech recognition  |
-| `enableDisplay`          | Boolean | `true`                                       | Show visual interface            |
-| `displayTimeout`         | Number  | `10000`                                      | Hide display after ms            |
-| `speechSynthesis`        | Boolean | `true`                                       | Enable text-to-speech            |
-| `llmEndpoint`            | String  | `"http://10.5.0.2:1234/v1/chat/completions"` | Your LLM API endpoint            |
-| `maxConversationHistory` | Number  | `5`                                          | Number of exchanges to remember  |
-| `systemPrompt`           | String  |                                              | Instructions for the LLM         |
-| `debugMode`              | Boolean | `false`                                      | Enable debug logging             |
+| Option                   | Type    | Default                                           | Description                      |
+| ------------------------ | ------- | ------------------------------------------------- | -------------------------------- |
+| `wakeWord`               | String  | `"hello mirror"`                                  | Phrase to activate the assistant |
+| `language`               | String  | `"en-US"`                                         | Language for speech recognition  |
+| `enableDisplay`          | Boolean | `true`                                            | Show visual interface            |
+| `displayTimeout`         | Number  | `10000`                                           | Hide display after ms            |
+| `speechSynthesis`        | Boolean | `true`                                            | Enable text-to-speech            |
+| `llmEndpoint`            | String  | `"http://192.168.0.109:1234/v1/chat/completions"` | Your LLM API endpoint            |
+| `maxConversationHistory` | Number  | `5`                                               | Number of exchanges to remember  |
+| `systemPrompt`           | String  |                                                   | Instructions for the LLM         |
+| `debugMode`              | Boolean | `false`                                           | Enable debug logging             |
 
 ## Setup Your Local LLM
 
-Make sure your LLM server is running on your desktop and accessible at `http://10.5.0.2:1234`. The module expects an OpenAI-compatible API with `/v1/chat/completions` endpoint.
+Make sure your LLM server is running on your desktop and accessible at `http://192.168.0.109:1234`. The module expects an OpenAI-compatible API with `/v1/chat/completions` endpoint.
 
 **Important Network Setup:**
 
-- Your desktop IP: `10.5.0.2`
+- Your desktop IP: `192.168.0.109`
 - Your Raspberry Pi should be on the same network: `192.168.0.x`
 - Make sure your desktop's firewall allows connections on port 1234
 
@@ -101,13 +101,13 @@ Popular LLM options:
 
 ### LLM Connection Issues
 
-- Verify your LLM is running on your desktop at `http://10.5.0.2:1234`
+- Verify your LLM is running on your desktop at `http://192.168.0.109:1234`
 - Check the endpoint URL in configuration
 - Ensure both devices are on the same network (192.168.0.x)
 - Test the endpoint manually with curl from the Raspberry Pi:
 
 ```bash
-curl -X POST http://10.5.0.2:1234/v1/chat/completions \
+curl -X POST http://192.168.0.109:1234/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"test","messages":[{"role":"user","content":"hello"}],"max_tokens":10}'
 ```

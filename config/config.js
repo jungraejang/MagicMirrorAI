@@ -118,7 +118,7 @@ let config = {
 				language: "en-US",
 				enableDisplay: true,
 				speechSynthesis: true,
-				llmEndpoint: "http://10.5.0.2:1234/v1/chat/completions",
+				llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
 				debugMode: true,
 				systemPrompt: "You are a helpful voice assistant for a smart mirror. Keep responses concise and conversational."
 			}
