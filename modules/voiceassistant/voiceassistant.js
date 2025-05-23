@@ -195,8 +195,15 @@ Module.register("voiceassistant", {
 	},
 
 	async startContinuousRecording() {
-		if (this.isListening || !this.audioStream) {
-			console.log(`⚠️ [VoiceAssistant] Cannot start continuous recording: isListening=${this.isListening}, audioStream=${!!this.audioStream}`);
+		if (this.isListening) {
+			console.log(`⚠️ [VoiceAssistant] Already listening, forcing reset...`);
+			this.isListening = false;
+			// Small delay to let previous recording cleanup
+			await new Promise(resolve => setTimeout(resolve, 100));
+		}
+		
+		if (!this.audioStream) {
+			console.log(`❌ [VoiceAssistant] No audio stream available`);
 			return;
 		}
 
@@ -245,6 +252,9 @@ Module.register("voiceassistant", {
 		if (!this.isWakeWordActive) return;
 
 		console.log("🔄 [VoiceAssistant] Processing continuous audio for wake word...");
+		
+		// Reset listening state immediately when processing starts
+		this.isListening = false;
 		
 		try {
 			console.log(`📊 [VoiceAssistant] Audio chunks collected: ${this.audioChunks.length}`);
