@@ -5,7 +5,7 @@ const Log = require("logger");
 module.exports = NodeHelper.create({
 	
 	start() {
-		console.log(`🚀 [${this.name}] Node helper started`);
+		console.log(`🚀 [${this.name}] Node helper started - STARTUP CONFIRMED`);
 		this.config = {};
 		this.conversationHistory = [];
 	},
