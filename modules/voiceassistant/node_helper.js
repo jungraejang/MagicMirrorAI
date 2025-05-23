@@ -99,7 +99,7 @@ module.exports = NodeHelper.create({
 				model: "local-model",
 				messages: messages,
 				temperature: 0.7,
-				max_tokens: 150
+				max_tokens: 50
 			};
 
 			console.log(`📡 [${this.name}] Sending to LLM...`);
@@ -146,13 +146,20 @@ module.exports = NodeHelper.create({
 	},
 
 	cleanTextForSpeech(text) {
-		// Remove thinking tags and content
+		// Remove thinking tags and content (multiple patterns)
 		text = text.replace(/<think>.*?<\/think>/gs, '');
-		
-		// Remove other common LLM artifacts
+		text = text.replace(/<thinking>.*?<\/thinking>/gs, '');
+		text = text.replace(/<reason>.*?<\/reason>/gs, '');
 		text = text.replace(/<reasoning>.*?<\/reasoning>/gs, '');
 		text = text.replace(/\[thinking\].*?\[\/thinking\]/gs, '');
 		text = text.replace(/\*thinking\*.*?\*\/thinking\*/gs, '');
+		text = text.replace(/\*\*thinking\*\*.*?\*\*\/thinking\*\*/gs, '');
+		
+		// Remove other common LLM artifacts
+		text = text.replace(/Let me think.*?[.!?]/gi, '');
+		text = text.replace(/I need to.*?[.!?]/gi, '');
+		text = text.replace(/First.*?[.!?]/gi, '');
+		text = text.replace(/Actually.*?[.!?]/gi, '');
 		
 		// Remove markdown formatting
 		text = text.replace(/\*\*(.*?)\*\*/g, '$1'); // Bold
@@ -171,6 +178,15 @@ module.exports = NodeHelper.create({
 		
 		// Remove empty lines
 		text = text.replace(/\n\s*\n/g, '\n');
+		
+		// Limit to first 2 sentences for brevity
+		const sentences = text.split(/[.!?]+/);
+		if (sentences.length > 2) {
+			text = sentences.slice(0, 2).join('. ').trim();
+			if (text && !text.match(/[.!?]$/)) {
+				text += '.';
+			}
+		}
 		
 		return text;
 	},

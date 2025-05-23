@@ -510,10 +510,14 @@ Module.register("voiceassistant", {
 		this.setState("processing");
 		this.isProcessing = true;
 		this.currentUserInput = userInput;
+		
+		// Clear previous conversation to show only current exchange
+		this.conversation = [];
+		this.updateDom(100); // Quick update to clear display
 
 		this.sendSocketNotification("PROCESS_SPEECH", {
 			userInput: userInput,
-			conversation: this.conversation
+			conversation: this.conversation // Send empty conversation for fresh context
 		});
 	},
 
@@ -582,11 +586,8 @@ Module.register("voiceassistant", {
 					assistant: payload.response
 				};
 				
+				// Add only the current exchange (previous ones were cleared)
 				this.conversation.push(exchange);
-				
-				if (this.conversation.length > this.config.maxConversationHistory) {
-					this.conversation = this.conversation.slice(-this.config.maxConversationHistory);
-				}
 
 				this.currentUserInput = ""; // Clear current input
 				this.updateDom(300);
