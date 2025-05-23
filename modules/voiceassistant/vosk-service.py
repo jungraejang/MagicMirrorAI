@@ -47,31 +47,54 @@ class VoskService:
     def transcribe_audio_file(self, audio_file_path):
         """Transcribe audio from WAV file"""
         try:
+            print(f"🔍 Transcribing audio file: {audio_file_path}")
+            print(f"📊 File size: {os.path.getsize(audio_file_path)} bytes")
+            
             wf = wave.open(audio_file_path, 'rb')
             
-            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != self.sample_rate:
+            # Check audio format
+            channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            frame_rate = wf.getframerate()
+            frames = wf.getnframes()
+            
+            print(f"🎵 Audio format: {channels} channels, {sample_width} bytes/sample, {frame_rate} Hz, {frames} frames")
+            
+            if channels != 1 or sample_width != 2 or frame_rate != self.sample_rate:
                 print(f"❌ Audio file must be WAV format mono PCM {self.sample_rate}Hz")
+                print(f"   Got: {channels} channels, {sample_width} bytes/sample, {frame_rate} Hz")
+                wf.close()
                 return None
             
             # Reset recognizer
             rec = vosk.KaldiRecognizer(self.model, self.sample_rate)
             
             # Process audio
+            frames_processed = 0
             while True:
                 data = wf.readframes(4000)
                 if len(data) == 0:
                     break
+                frames_processed += len(data) // 2  # 2 bytes per sample
                 rec.AcceptWaveform(data)
+            
+            print(f"📊 Processed {frames_processed} audio frames")
             
             # Get final result
             result = json.loads(rec.FinalResult())
             text = result.get('text', '').strip()
+            
+            print(f"🎯 Vosk result: {result}")
+            print(f"📝 Extracted text: '{text}'")
             
             wf.close()
             return text
             
         except Exception as e:
             print(f"❌ Error transcribing audio: {e}")
+            print(f"❌ Exception type: {type(e).__name__}")
+            import traceback
+            print(f"❌ Traceback: {traceback.format_exc()}")
             return None
     
     def record_and_transcribe(self, duration=5):
