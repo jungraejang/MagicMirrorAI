@@ -24,6 +24,10 @@ module.exports = NodeHelper.create({
 			case "VOSK_TRANSCRIBE":
 				this.transcribeWithVosk(payload.audioData);
 				break;
+
+			case "WAKE_WORD_CHECK":
+				this.detectWakeWord(payload.audioData, payload.wakeWord);
+				break;
 		}
 	},
 
@@ -211,6 +215,41 @@ module.exports = NodeHelper.create({
 		} catch (error) {
 			Log.error("LLM connection test failed:", error);
 			return false;
+		}
+	},
+
+	async detectWakeWord(audioData, wakeWord) {
+		try {
+			// Reuse Vosk transcription
+			const voskUrl = "http://localhost:5000/transcribe";
+
+			const response = await axios.post(voskUrl, audioData, {
+				headers: { 'Content-Type': 'audio/wav' },
+				timeout: 10000
+			});
+
+			let detected = false;
+			let transcript = "";
+			if (response.data.success) {
+				transcript = (response.data.text || '').toLowerCase().trim();
+				detected = transcript.includes(wakeWord.toLowerCase());
+				if (detected) {
+					console.log(`🎯 [${this.name}] Wake word detected in transcript: "${transcript}"`);
+				}
+			} else {
+				console.error(`❌ [${this.name}] Wake word check failed:`, response.data.error);
+			}
+
+			this.sendSocketNotification("WAKE_WORD_RESULT", {
+				detected: detected,
+				transcript: transcript
+			});
+		} catch (error) {
+			console.error(`❌ [${this.name}] Wake word check error:`, error.message);
+			this.sendSocketNotification("WAKE_WORD_RESULT", {
+				detected: false,
+				error: error.message
+			});
 		}
 	}
 }); 
