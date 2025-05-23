@@ -245,7 +245,10 @@ Module.register("voiceassistant", {
 		console.log("🔄 [VoiceAssistant] Processing continuous audio for wake word...");
 		
 		try {
+			console.log(`📊 [VoiceAssistant] Audio chunks collected: ${this.audioChunks.length}`);
+			
 			if (this.audioChunks.length === 0) {
+				console.log("⚠️ [VoiceAssistant] No audio chunks collected, restarting...");
 				this.restartContinuousRecording();
 				return;
 			}
@@ -254,18 +257,23 @@ Module.register("voiceassistant", {
 			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
 			this.audioChunks = []; // Clear for next recording
 
+			console.log(`📊 [VoiceAssistant] Audio blob size: ${audioBlob.size} bytes`);
+
 			if (audioBlob.size === 0) {
+				console.log("⚠️ [VoiceAssistant] Empty audio blob, restarting...");
 				this.restartContinuousRecording();
 				return;
 			}
 			
 			// Convert to WAV format for Vosk
 			const wavBlob = await this.convertToWav(audioBlob);
+			console.log(`📊 [VoiceAssistant] WAV blob size: ${wavBlob.size} bytes`);
 			
 			// Send to node helper for Vosk wake word detection
 			const reader = new FileReader();
 			reader.onload = () => {
 				const audioData = reader.result;
+				console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes to Vosk for wake word detection...`);
 				this.sendSocketNotification("VOSK_WAKE_WORD", { audioData: audioData });
 			};
 			reader.readAsArrayBuffer(wavBlob);

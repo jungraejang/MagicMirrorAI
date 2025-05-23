@@ -11,10 +11,15 @@ module.exports = NodeHelper.create({
 	},
 
 	socketNotificationReceived(notification, payload) {
+		console.log(`📨 [${this.name}] Received notification: ${notification}`);
+		
 		switch (notification) {
 			case "CONFIG":
 				this.config = payload;
 				console.log(`⚙️ [${this.name}] Config received:`, this.config);
+				
+				// Test Vosk service connectivity
+				this.testVoskConnection();
 				break;
 				
 			case "PROCESS_SPEECH":
@@ -26,6 +31,7 @@ module.exports = NodeHelper.create({
 				break;
 				
 			case "VOSK_WAKE_WORD":
+				console.log(`🎯 [${this.name}] Wake word detection request received`);
 				this.transcribeForWakeWord(payload.audioData);
 				break;
 		}
@@ -215,6 +221,29 @@ module.exports = NodeHelper.create({
 		} catch (error) {
 			Log.error("LLM connection test failed:", error);
 			return false;
+		}
+	},
+
+	async testVoskConnection() {
+		try {
+			console.log(`🔍 [${this.name}] Testing Vosk service connection...`);
+			
+			const voskUrl = "http://localhost:5000/transcribe";
+			
+			// Send a simple test request with empty data
+			const response = await axios.post(voskUrl, Buffer.alloc(0), {
+				headers: {
+					'Content-Type': 'audio/wav',
+				},
+				timeout: 3000
+			});
+
+			console.log(`✅ [${this.name}] Vosk service is running and accessible`);
+			console.log(`📊 [${this.name}] Vosk test response:`, response.data);
+
+		} catch (error) {
+			console.error(`❌ [${this.name}] Vosk service connection failed:`, error.message);
+			console.error(`💡 [${this.name}] Make sure Vosk service is running: python3 modules/voiceassistant/vosk-service.py`);
 		}
 	},
 
