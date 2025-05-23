@@ -29,6 +29,20 @@ let config = {
 	timeFormat: 24,
 	units: "metric",
 
+	electronOptions: {
+		webPreferences: {
+			webSecurity: false
+		},
+		// Add these flags to help with speech recognition
+		additionalArguments: [
+			"--disable-web-security",
+			"--allow-running-insecure-content",
+			"--disable-features=VizDisplayCompositor",
+			"--enable-speech-dispatcher",
+			"--allow-insecure-localhost"
+		]
+	},
+
 	modules: [
 		{
 			module: "alert",
