@@ -11,7 +11,8 @@ Module.register("voiceassistant", {
 		debugMode: false,
 		useVosk: true,  // Use Vosk for command processing
 		useHybridMode: true, // Use Web Speech API for wake word, Vosk for commands
-		recordingDuration: 5000  // Recording duration in milliseconds
+		recordingDuration: 5000,  // Recording duration in milliseconds
+		wakeWordChunkLength: 2500
 	},
 
 	requiresVersion: "2.1.0",
@@ -28,7 +29,6 @@ Module.register("voiceassistant", {
 		this.mediaRecorder = null;
 		this.audioStream = null;
 		this.wakeWordInterval = null;
-		this.commandRecordingTimer = null;
 		this.displayTimer = null;
 		this.currentState = "initializing";
 		this.audioChunks = [];
@@ -36,13 +36,6 @@ Module.register("voiceassistant", {
 		this.manualMode = false;
 		this.currentUserInput = "";
 		this.wakeWordAttempts = 0;
-		
-		// Audio capture variables
-		this.validRecordingMimeType = null;
-		this.audioContext = null;
-		this.audioSource = null;
-		this.audioProcessor = null;
-		this.capturedAudioData = [];
 		
 		// Send config to node helper
 		this.sendSocketNotification("CONFIG", this.config);
@@ -206,8 +199,8 @@ Module.register("voiceassistant", {
 		if (this.isListening) {
 			console.log(`⚠️ [VoiceAssistant] Already listening, forcing reset...`);
 			this.isListening = false;
-			// Shorter delay for faster restart
-			await new Promise(resolve => setTimeout(resolve, 50));
+			// Small delay to let previous recording cleanup
+			await new Promise(resolve => setTimeout(resolve, 100));
 		}
 		
 		if (!this.audioStream) {
@@ -222,18 +215,10 @@ Module.register("voiceassistant", {
 		this.audioChunks = [];
 
 		try {
-			// Use the pre-tested valid recording format
-			let mimeType = this.validRecordingMimeType || 'audio/webm'; // Fallback
-			console.log(`✅ [VoiceAssistant] Using MIME type for wake word: ${mimeType}`);
-
-			// Create MediaRecorder for continuous listening with optimized settings
+			// Create MediaRecorder for continuous listening
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: mimeType,
-				audioBitsPerSecond: 16000 // Lower bitrate for faster processing
+				mimeType: 'audio/webm'
 			});
-			
-			// Store format for consistency 
-			this.wakeWordMimeType = mimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
 				if (event.data.size > 0) {
@@ -245,15 +230,15 @@ Module.register("voiceassistant", {
 				this.processContinuousRecording();
 			};
 
-			// Start recording with smaller time slices for faster processing
-			this.mediaRecorder.start(500); // 500ms slices for more responsive processing
+			// Start recording
+			this.mediaRecorder.start();
 
-			// Optimized: shorter chunks for faster wake word detection
+			// Simple approach: record for 8 seconds, then process and restart
 			this.wakeWordInterval = setTimeout(() => {
 				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
 					this.mediaRecorder.stop();
 				}
-			}, 3000); // 3-second chunks for faster response
+			}, this.config.wakeWordChunkLength); // shorter chunks for faster wake-word detection
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
@@ -282,20 +267,13 @@ Module.register("voiceassistant", {
 			}
 
 			// Create audio blob
-			const audioBlob = new Blob(this.audioChunks, { type: this.wakeWordMimeType });
+			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
 			this.audioChunks = []; // Clear for next recording
 
 			console.log(`📊 [VoiceAssistant] Audio blob size: ${audioBlob.size} bytes`);
-			
+
 			if (audioBlob.size === 0) {
 				console.log("⚠️ [VoiceAssistant] Empty audio blob, restarting...");
-				this.restartContinuousRecording();
-				return;
-			}
-			
-			// Validate audio blob by checking if it has a reasonable size
-			if (audioBlob.size < 1000) {
-				console.log("⚠️ [VoiceAssistant] Audio blob too small, likely invalid");
 				this.restartContinuousRecording();
 				return;
 			}
@@ -323,7 +301,7 @@ Module.register("voiceassistant", {
 
 	restartContinuousRecording() {
 		if (this.isWakeWordActive && !this.isProcessing) {
-			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 200ms...");
+			console.log("🔄 [VoiceAssistant] Restarting continuous recording in 500ms...");
 			setTimeout(() => {
 				if (this.isWakeWordActive && !this.isProcessing) {
 					console.log("✅ [VoiceAssistant] Restarting continuous recording now");
@@ -331,7 +309,7 @@ Module.register("voiceassistant", {
 				} else {
 					console.log(`⚠️ [VoiceAssistant] Cannot restart: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 				}
-			}, 200); // Faster restart for better responsiveness
+			}, 500); // Shorter gap between recordings
 		} else {
 			console.log(`⚠️ [VoiceAssistant] Not restarting: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}`);
 		}
@@ -369,111 +347,11 @@ Module.register("voiceassistant", {
 			
 			console.log("✅ [VoiceAssistant] Microphone access granted for Vosk");
 			
-			// Test recording formats to find one that actually works
-			await this.testRecordingFormats();
-			
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to access microphone:", error);
 			this.currentState = "error";
 			this.updateDom();
 			throw error;
-		}
-	},
-
-	async testRecordingFormats() {
-		console.log("🧪 [VoiceAssistant] Testing recording formats...");
-		
-		const formatsToTest = [
-			'audio/wav',
-			'audio/ogg',
-			'audio/webm'
-		];
-		
-		for (const mimeType of formatsToTest) {
-			if (MediaRecorder.isTypeSupported(mimeType)) {
-				console.log(`🔬 [VoiceAssistant] Testing ${mimeType}...`);
-				
-				const isValid = await this.testMimeType(mimeType);
-				if (isValid) {
-					this.validRecordingMimeType = mimeType;
-					console.log(`✅ [VoiceAssistant] Found working format: ${mimeType}`);
-					return;
-				} else {
-					console.log(`❌ [VoiceAssistant] Format ${mimeType} produces invalid files`);
-				}
-			}
-		}
-		
-		console.log("⚠️ [VoiceAssistant] No valid recording formats found, will use direct audio capture");
-		this.validRecordingMimeType = null;
-	},
-
-	async testMimeType(mimeType) {
-		return new Promise((resolve) => {
-			try {
-				const testRecorder = new MediaRecorder(this.audioStream, { mimeType });
-				const testChunks = [];
-				
-				testRecorder.ondataavailable = (event) => {
-					if (event.data.size > 0) {
-						testChunks.push(event.data);
-					}
-				};
-				
-				testRecorder.onstop = async () => {
-					try {
-						if (testChunks.length === 0) {
-							resolve(false);
-							return;
-						}
-						
-						const testBlob = new Blob(testChunks, { type: mimeType });
-						if (testBlob.size < 100) {
-							resolve(false);
-							return;
-						}
-						
-						// Try to decode the audio to see if it's valid
-						if (mimeType === 'audio/wav') {
-							// WAV should work directly
-							resolve(true);
-						} else {
-							// Test WebM/OGG by trying to decode it
-							const isValid = await this.testAudioDecoding(testBlob);
-							resolve(isValid);
-						}
-					} catch (error) {
-						console.log(`🔬 [VoiceAssistant] Test decode failed for ${mimeType}:`, error.message);
-						resolve(false);
-					}
-				};
-				
-				testRecorder.onerror = () => resolve(false);
-				
-				// Record for 1 second
-				testRecorder.start();
-				setTimeout(() => {
-					if (testRecorder.state === 'recording') {
-						testRecorder.stop();
-					}
-				}, 1000);
-				
-			} catch (error) {
-				console.log(`🔬 [VoiceAssistant] Test recorder creation failed for ${mimeType}:`, error.message);
-				resolve(false);
-			}
-		});
-	},
-
-	async testAudioDecoding(audioBlob) {
-		try {
-			const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-			const arrayBuffer = await audioBlob.arrayBuffer();
-			await audioContext.decodeAudioData(arrayBuffer);
-			await audioContext.close();
-			return true;
-		} catch (error) {
-			return false;
 		}
 	},
 
@@ -485,244 +363,71 @@ Module.register("voiceassistant", {
 			console.log("🛑 [VoiceAssistant] Stopping wake word detection for command recording");
 			this.stopVoskWakeWordDetection();
 			// Wait a moment for cleanup
-			await new Promise(resolve => setTimeout(resolve, 300));
+			await new Promise(resolve => setTimeout(resolve, 500));
 		}
 		
-		// Clear any existing recording state
-		this.isListening = false;
-		this.isProcessing = true; // Set processing to prevent auto-restart
-		
-		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
-			console.log("🛑 [VoiceAssistant] Stopping existing recorder");
-			this.mediaRecorder.stop();
-			await new Promise(resolve => setTimeout(resolve, 200));
+		if (this.isListening || this.isProcessing) {
+			console.log("⚠️ [VoiceAssistant] Still busy after wake word cleanup, forcing stop...");
+			this.isListening = false;
+			this.isProcessing = false;
+			if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+				this.mediaRecorder.stop();
+			}
+			// Wait for cleanup
+			await new Promise(resolve => setTimeout(resolve, 300));
 		}
 		
 		if (!this.audioStream) {
 			console.log("❌ [VoiceAssistant] No audio stream available");
-			this.setState("waiting");
-			this.isProcessing = false;
 			return;
 		}
 
-		console.log("🎙️ [VoiceAssistant] Setting up command recording...");
 		this.setState("listening");
 		this.isListening = true;
 		this.audioChunks = [];
 
-		// Use direct audio capture if MediaRecorder doesn't work
-		if (!this.validRecordingMimeType) {
-			console.log("🔄 [VoiceAssistant] Using direct audio capture method");
-			await this.startDirectAudioCapture();
-			return;
-		}
-
 		try {
-			console.log(`✅ [VoiceAssistant] Using validated MIME type: ${this.validRecordingMimeType}`);
-
-			// Create MediaRecorder with the tested format
+			// Create MediaRecorder for command recording
 			this.mediaRecorder = new MediaRecorder(this.audioStream, {
-				mimeType: this.validRecordingMimeType
+				mimeType: 'audio/webm'
 			});
-			
-			// Store the format for later processing
-			this.recordingMimeType = this.validRecordingMimeType;
 
 			this.mediaRecorder.ondataavailable = (event) => {
-				console.log(`📊 [VoiceAssistant] Command audio chunk: ${event.data.size} bytes`);
 				if (event.data.size > 0) {
 					this.audioChunks.push(event.data);
 				}
 			};
 
 			this.mediaRecorder.onstop = () => {
-				console.log("🔇 [VoiceAssistant] Command recorder stopped, processing...");
 				this.processRecording();
 			};
 
-			this.mediaRecorder.onerror = (event) => {
-				console.error("❌ [VoiceAssistant] MediaRecorder error:", event.error);
-				this.setState("waiting");
-				this.isProcessing = false;
-			};
-
-			// Start recording with time slices for better data collection
-			this.mediaRecorder.start(200);
+			// Start recording
+			this.mediaRecorder.start();
 			console.log("✅ [VoiceAssistant] Command recording started successfully");
 
 			// Auto-stop after configured duration
-			this.commandRecordingTimer = setTimeout(() => {
+			setTimeout(() => {
 				if (this.currentState === "listening" && this.mediaRecorder && this.mediaRecorder.state === "recording") {
-					console.log("⏰ [VoiceAssistant] Command recording timeout, stopping...");
 					this.stopCommandRecording();
 				}
 			}, this.config.recordingDuration);
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start command recording:", error);
-			console.log("🔄 [VoiceAssistant] Falling back to direct audio capture");
-			await this.startDirectAudioCapture();
-		}
-	},
-
-	async startDirectAudioCapture() {
-		console.log("🎙️ [VoiceAssistant] Starting direct audio capture...");
-		
-		try {
-			// Create audio context for direct capture
-			this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-				sampleRate: 16000
-			});
-			
-			// Create source from audio stream
-			this.audioSource = this.audioContext.createMediaStreamSource(this.audioStream);
-			
-			// Create script processor for capturing audio data
-			this.audioProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
-			this.capturedAudioData = [];
-			
-			this.audioProcessor.onaudioprocess = (event) => {
-				const inputBuffer = event.inputBuffer;
-				const inputData = inputBuffer.getChannelData(0);
-				
-				// Copy the audio data
-				const audioData = new Float32Array(inputData.length);
-				audioData.set(inputData);
-				this.capturedAudioData.push(audioData);
-			};
-			
-			// Connect the audio pipeline
-			this.audioSource.connect(this.audioProcessor);
-			this.audioProcessor.connect(this.audioContext.destination);
-			
-			console.log("✅ [VoiceAssistant] Direct audio capture started");
-			
-			// Auto-stop after configured duration
-			this.commandRecordingTimer = setTimeout(() => {
-				if (this.currentState === "listening") {
-					console.log("⏰ [VoiceAssistant] Direct capture timeout, stopping...");
-					this.stopDirectAudioCapture();
-				}
-			}, this.config.recordingDuration);
-			
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] Failed to start direct audio capture:", error);
 			this.setState("waiting");
-			this.isProcessing = false;
-		}
-	},
-
-	async stopDirectAudioCapture() {
-		console.log("🔇 [VoiceAssistant] Stopping direct audio capture...");
-		
-		if (this.commandRecordingTimer) {
-			clearTimeout(this.commandRecordingTimer);
-			this.commandRecordingTimer = null;
-		}
-		
-		this.isListening = false;
-		
-		if (this.audioProcessor) {
-			this.audioProcessor.disconnect();
-			this.audioProcessor = null;
-		}
-		
-		if (this.audioSource) {
-			this.audioSource.disconnect();
-			this.audioSource = null;
-		}
-		
-		// Process the captured audio
-		await this.processDirectAudioCapture();
-	},
-
-	async processDirectAudioCapture() {
-		console.log("🔄 [VoiceAssistant] Processing direct audio capture...");
-		
-		this.setState("processing");
-		
-		try {
-			if (!this.capturedAudioData || this.capturedAudioData.length === 0) {
-				console.log("⚠️ [VoiceAssistant] No audio data captured");
-				this.setState("waiting");
-				this.isProcessing = false;
-				return;
-			}
-			
-			// Combine all audio chunks
-			let totalLength = 0;
-			this.capturedAudioData.forEach(chunk => totalLength += chunk.length);
-			
-			const combinedAudio = new Float32Array(totalLength);
-			let offset = 0;
-			this.capturedAudioData.forEach(chunk => {
-				combinedAudio.set(chunk, offset);
-				offset += chunk.length;
-			});
-			
-			console.log(`📊 [VoiceAssistant] Captured ${combinedAudio.length} audio samples`);
-			
-			// Create WAV file directly
-			const wavBuffer = this.createWavFile(combinedAudio, 16000);
-			const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-			
-			console.log(`📊 [VoiceAssistant] Created WAV file: ${wavBlob.size} bytes`);
-			
-			// Send to Vosk
-			const reader = new FileReader();
-			reader.onload = () => {
-				const audioData = reader.result;
-				console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of direct-captured WAV to Vosk...`);
-				this.sendSocketNotification("VOSK_TRANSCRIBE", { 
-					audioData: audioData,
-					isCommand: true,
-					originalFormat: 'wav'
-				});
-			};
-			reader.onerror = () => {
-				console.error("❌ [VoiceAssistant] FileReader error");
-				this.setState("waiting");
-				this.isProcessing = false;
-			};
-			reader.readAsArrayBuffer(wavBlob);
-			
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] Error processing direct audio capture:", error);
-			this.setState("waiting");
-			this.isProcessing = false;
-		} finally {
-			// Clean up
-			this.capturedAudioData = [];
-			if (this.audioContext && this.audioContext.state !== 'closed') {
-				await this.audioContext.close();
-				this.audioContext = null;
-			}
 		}
 	},
 
 	stopCommandRecording() {
-		if (!this.isListening) {
-			console.log("⚠️ [VoiceAssistant] No active command recording to stop");
-			return;
-		}
+		if (!this.isListening || !this.mediaRecorder) return;
 
 		console.log("🔇 [VoiceAssistant] Stopping command recording...");
 		
-		if (this.commandRecordingTimer) {
-			clearTimeout(this.commandRecordingTimer);
-			this.commandRecordingTimer = null;
-		}
-		
 		this.isListening = false;
 		
-		// Handle MediaRecorder method
-		if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
+		if (this.mediaRecorder.state === "recording") {
 			this.mediaRecorder.stop();
-		}
-		
-		// Handle direct audio capture method
-		if (this.audioProcessor) {
-			this.stopDirectAudioCapture();
 		}
 	},
 
@@ -732,165 +437,43 @@ Module.register("voiceassistant", {
 		this.setState("processing");
 		
 		try {
-			console.log(`📊 [VoiceAssistant] Command audio chunks collected: ${this.audioChunks.length}`);
-			
-			if (this.audioChunks.length === 0) {
-				console.log("⚠️ [VoiceAssistant] No command audio chunks collected");
-				this.setState("waiting");
-				this.isProcessing = false;
-				return;
-			}
-
 			// Create audio blob
-			const audioBlob = new Blob(this.audioChunks, { type: this.recordingMimeType });
-			console.log(`📊 [VoiceAssistant] Command audio blob size: ${audioBlob.size} bytes`);
+			const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+			console.log(`📊 [VoiceAssistant] Audio blob size: ${audioBlob.size} bytes`);
 			
 			if (audioBlob.size === 0) {
-				console.log("⚠️ [VoiceAssistant] Empty command audio blob");
+				console.log("⚠️ [VoiceAssistant] Empty audio blob, returning to waiting");
 				this.setState("waiting");
-				this.isProcessing = false;
 				return;
 			}
 			
-			// Validate audio blob by checking if it has a reasonable size
-			if (audioBlob.size < 1000) {
-				console.log("⚠️ [VoiceAssistant] Audio blob too small, likely invalid");
-				this.setState("waiting");
-				this.isProcessing = false;
-				return;
-			}
+			// Convert to WAV format for Vosk
+			const wavBlob = await this.convertToWav(audioBlob);
+			console.log(`📊 [VoiceAssistant] WAV blob size: ${wavBlob.size} bytes`);
 			
-			// Add delay to ensure audio is complete
-			await new Promise(resolve => setTimeout(resolve, 100));
-			
-			// Handle different audio formats
-			console.log(`🎵 [VoiceAssistant] Processing ${this.recordingMimeType} audio`);
-			
-			// If we got WAV directly, use it as-is
-			if (this.recordingMimeType === 'audio/wav') {
-				console.log("✅ [VoiceAssistant] Using native WAV format");
-				const reader = new FileReader();
-				reader.onload = () => {
-					const audioData = reader.result;
-					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of WAV data to Vosk...`);
-					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
-						audioData: audioData,
-						isCommand: true,
-						originalFormat: 'wav'
-					});
-				};
-				reader.onerror = () => {
-					console.error("❌ [VoiceAssistant] FileReader error");
-					this.setState("waiting");
-					this.isProcessing = false;
-				};
-				reader.readAsArrayBuffer(audioBlob);
-				return;
-			}
-			
-			// Try client-side conversion to WAV first
-			let wavBlob;
-			try {
-				wavBlob = await this.convertToWav(audioBlob);
-				console.log(`📊 [VoiceAssistant] Command WAV blob size: ${wavBlob.size} bytes`);
-				
-				if (wavBlob.size === 0) {
-					throw new Error("WAV conversion produced empty file");
-				}
-				
-				// Send converted WAV
-				const reader = new FileReader();
-				reader.onload = () => {
-					const audioData = reader.result;
-					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of converted WAV to Vosk...`);
-					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
-						audioData: audioData,
-						isCommand: true,
-						originalFormat: 'wav'
-					});
-				};
-				reader.onerror = () => {
-					console.error("❌ [VoiceAssistant] FileReader error");
-					this.setState("waiting");
-					this.isProcessing = false;
-				};
-				reader.readAsArrayBuffer(wavBlob);
-				
-			} catch (conversionError) {
-				console.error("❌ [VoiceAssistant] Client-side conversion failed:", conversionError.message);
-				console.log("🔄 [VoiceAssistant] Trying server-side conversion fallback...");
-				
-				// Fallback: send original audio to server for conversion
-				const reader = new FileReader();
-				reader.onload = () => {
-					const audioData = reader.result;
-					console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes of ${this.recordingMimeType} to server for conversion...`);
-					this.sendSocketNotification("VOSK_TRANSCRIBE", { 
-						audioData: audioData,
-						isCommand: true,
-						originalFormat: this.recordingMimeType,
-						needsConversion: true
-					});
-				};
-				reader.onerror = () => {
-					console.error("❌ [VoiceAssistant] FileReader error on fallback");
-					this.setState("waiting");
-					this.isProcessing = false;
-					
-					// Show error message to user
-					this.sendSocketNotification("SPEECH_ERROR", {
-						error: "Audio processing failed",
-						userMessage: "Sorry, I couldn't process your audio. Please try again."
-					});
-				};
-				reader.readAsArrayBuffer(audioBlob);
-			}
+			// Send to node helper for Vosk transcription
+			const reader = new FileReader();
+			reader.onload = () => {
+				const audioData = reader.result;
+				console.log(`📡 [VoiceAssistant] Sending ${audioData.byteLength} bytes to Vosk...`);
+				this.sendSocketNotification("VOSK_TRANSCRIBE", { audioData: audioData });
+			};
+			reader.readAsArrayBuffer(wavBlob);
 			
 		} catch (error) {
-			console.error("❌ [VoiceAssistant] Error processing command recording:", error);
+			console.error("❌ [VoiceAssistant] Error processing recording:", error);
 			this.setState("waiting");
-			this.isProcessing = false;
 		}
 	},
 
 	async convertToWav(webmBlob) {
-		console.log("🔄 [VoiceAssistant] Converting WebM to WAV...");
-		
-		// Create audio context with better error handling
-		let audioContext;
-		try {
-			audioContext = new (window.AudioContext || window.webkitAudioContext)({
-				sampleRate: 16000
-			});
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] Failed to create audio context:", error);
-			throw new Error("Audio context creation failed");
-		}
+		// Create audio context
+		const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 		
 		try {
-			// Wait for audio context to be ready
-			if (audioContext.state === 'suspended') {
-				await audioContext.resume();
-			}
-			
-			// Decode audio data with timeout
-			console.log("📊 [VoiceAssistant] Decoding WebM audio...");
+			// Decode audio data
 			const arrayBuffer = await webmBlob.arrayBuffer();
-			console.log(`📊 [VoiceAssistant] WebM buffer size: ${arrayBuffer.byteLength} bytes`);
-			
-			if (arrayBuffer.byteLength === 0) {
-				throw new Error("Empty audio buffer");
-			}
-			
-			// Decode with timeout protection
-			const audioBuffer = await Promise.race([
-				audioContext.decodeAudioData(arrayBuffer),
-				new Promise((_, reject) => 
-					setTimeout(() => reject(new Error("Decode timeout")), 5000)
-				)
-			]);
-			
-			console.log(`📊 [VoiceAssistant] Decoded audio: ${audioBuffer.duration}s, ${audioBuffer.sampleRate}Hz`);
+			const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 			
 			// Resample to 16kHz for Vosk
 			const targetSampleRate = 16000;
@@ -898,69 +481,36 @@ Module.register("voiceassistant", {
 			
 			// Get PCM data
 			const pcmData = resampledBuffer.getChannelData(0);
-			console.log(`📊 [VoiceAssistant] PCM data length: ${pcmData.length} samples`);
-			
-			if (pcmData.length === 0) {
-				throw new Error("No audio data after conversion");
-			}
 			
 			// Create WAV file
 			const wavBuffer = this.createWavFile(pcmData, targetSampleRate);
-			console.log(`📊 [VoiceAssistant] WAV buffer size: ${wavBuffer.byteLength} bytes`);
 			
 			return new Blob([wavBuffer], { type: 'audio/wav' });
-			
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] WAV conversion failed:", error.message);
-			throw error;
 		} finally {
 			// Clean up audio context
-			if (audioContext && audioContext.state !== 'closed') {
-				try {
-					await audioContext.close();
-				} catch (closeError) {
-					console.warn("⚠️ [VoiceAssistant] Audio context close error:", closeError);
-				}
+			if (audioContext.state !== 'closed') {
+				await audioContext.close();
 			}
 		}
 	},
 
 	async resampleAudio(audioBuffer, targetSampleRate) {
-		console.log(`🔄 [VoiceAssistant] Resampling from ${audioBuffer.sampleRate}Hz to ${targetSampleRate}Hz`);
-		
 		const originalSampleRate = audioBuffer.sampleRate;
 		
 		if (originalSampleRate === targetSampleRate) {
-			console.log("✅ [VoiceAssistant] Sample rates match, no resampling needed");
 			return audioBuffer;
 		}
 		
 		const ratio = originalSampleRate / targetSampleRate;
 		const targetLength = Math.round(audioBuffer.length / ratio);
 		
-		console.log(`📊 [VoiceAssistant] Resampling: ${audioBuffer.length} → ${targetLength} samples`);
+		const offlineContext = new OfflineAudioContext(1, targetLength, targetSampleRate);
+		const bufferSource = offlineContext.createBufferSource();
+		bufferSource.buffer = audioBuffer;
+		bufferSource.connect(offlineContext.destination);
+		bufferSource.start(0);
 		
-		try {
-			const offlineContext = new OfflineAudioContext(1, targetLength, targetSampleRate);
-			const bufferSource = offlineContext.createBufferSource();
-			bufferSource.buffer = audioBuffer;
-			bufferSource.connect(offlineContext.destination);
-			bufferSource.start(0);
-			
-			const resampledBuffer = await Promise.race([
-				offlineContext.startRendering(),
-				new Promise((_, reject) => 
-					setTimeout(() => reject(new Error("Resample timeout")), 3000)
-				)
-			]);
-			
-			console.log("✅ [VoiceAssistant] Resampling completed");
-			return resampledBuffer;
-			
-		} catch (error) {
-			console.error("❌ [VoiceAssistant] Resampling failed:", error);
-			throw error;
-		}
+		return await offlineContext.startRendering();
 	},
 
 	createWavFile(pcmData, sampleRate) {
@@ -1024,20 +574,12 @@ Module.register("voiceassistant", {
 			this.startDisplayTimer();
 		}
 		
-		// Only restart wake word detection when entering waiting state from responding/processing
-		// Don't restart if we just finished command recording or if processing is still active
-		if (newState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
+		// Restart wake word detection when entering waiting state
+		if (newState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 			setTimeout(() => {
-				// Double-check conditions before restarting
-				if (this.currentState === "waiting" && 
-					!this.isWakeWordActive && 
-					!this.manualMode && 
-					!this.isProcessing &&
-					!this.isListening) {
+				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 					console.log("🔄 [VoiceAssistant] Auto-restarting wake word detection in waiting state");
 					this.startVoskWakeWordDetection();
-				} else {
-					console.log(`⚠️ [VoiceAssistant] Skipping wake word restart: isWakeWordActive=${this.isWakeWordActive}, isProcessing=${this.isProcessing}, isListening=${this.isListening}`);
 				}
 			}, 500);
 		}
@@ -1060,7 +602,7 @@ Module.register("voiceassistant", {
 			this.setState("waiting");
 			this.isProcessing = false;
 			setTimeout(() => {
-				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
+				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 					console.log("🔄 [VoiceAssistant] Restarting wake word detection (no TTS)");
 					this.startVoskWakeWordDetection();
 				}
@@ -1080,22 +622,8 @@ Module.register("voiceassistant", {
 			
 			// Restart wake word detection after speaking
 			setTimeout(() => {
-				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
+				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 					console.log("🔄 [VoiceAssistant] Restarting wake word detection after speech");
-					this.startVoskWakeWordDetection();
-				}
-			}, 1000);
-		};
-
-		utterance.onerror = () => {
-			console.error("❌ [VoiceAssistant] Speech synthesis error");
-			this.setState("waiting");
-			this.isProcessing = false;
-			
-			// Restart wake word detection after error
-			setTimeout(() => {
-				if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
-					console.log("🔄 [VoiceAssistant] Restarting wake word detection after speech error");
 					this.startVoskWakeWordDetection();
 				}
 			}, 1000);
@@ -1127,13 +655,10 @@ Module.register("voiceassistant", {
 					if (transcript) {
 						console.log(`🗣️ [VoiceAssistant] Continuous audio: "${transcript}"`);
 						
-						// Enhanced wake word detection with multiple triggers
+						// Check if wake word is in the transcript
 						if (transcript.includes(this.config.wakeWord.toLowerCase()) || 
 							transcript.includes("mirror") || 
-							transcript.includes("hello mirror") ||
-							transcript.includes("hello") ||
-							transcript.includes("hey mirror") ||
-							transcript.includes("ok mirror")) {
+							transcript.includes("hello mirror")) {
 							console.log("🎯 [VoiceAssistant] Wake word detected in Vosk transcript!");
 							this.onWakeWordDetected();
 						}
@@ -1148,7 +673,6 @@ Module.register("voiceassistant", {
 				if (payload.success) {
 					console.log(`🗣️ [VoiceAssistant] Vosk transcribed: "${payload.transcript}"`);
 					if (payload.transcript && payload.transcript.trim().length > 0) {
-						// Keep isProcessing true as we're now processing with LLM
 						this.processUserInput(payload.transcript);
 					} else {
 						console.log("⚠️ [VoiceAssistant] Empty transcription, returning to waiting");
@@ -1156,9 +680,9 @@ Module.register("voiceassistant", {
 						this.isProcessing = false;
 						this.currentUserInput = "";
 						
-						// Restart wake word detection after short delay
+						// Restart wake word detection
 						setTimeout(() => {
-							if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
+							if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 								console.log("🔄 [VoiceAssistant] Restarting wake word detection after empty transcription");
 								this.startVoskWakeWordDetection();
 							}
@@ -1170,9 +694,9 @@ Module.register("voiceassistant", {
 					this.isProcessing = false;
 					this.currentUserInput = "";
 					
-					// Restart wake word detection after error
+					// Restart wake word detection
 					setTimeout(() => {
-						if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
+						if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
 							console.log("🔄 [VoiceAssistant] Restarting wake word detection after Vosk error");
 							this.startVoskWakeWordDetection();
 						}
@@ -1202,18 +726,13 @@ Module.register("voiceassistant", {
 				this.isProcessing = false;
 				this.currentUserInput = "";
 				
-				// Show user-friendly error message if provided
-				if (payload.userMessage && this.config.speechSynthesis) {
-					this.speak(payload.userMessage);
-				} else {
-					// Restart wake word detection after LLM error
-					setTimeout(() => {
-						if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode && !this.isProcessing) {
-							console.log("🔄 [VoiceAssistant] Restarting wake word detection after LLM error");
-							this.startVoskWakeWordDetection();
-						}
-					}, 1000);
-				}
+				// Restart wake word detection
+				setTimeout(() => {
+					if (this.currentState === "waiting" && !this.isWakeWordActive && !this.manualMode) {
+						console.log("🔄 [VoiceAssistant] Restarting wake word detection after LLM error");
+						this.startVoskWakeWordDetection();
+					}
+				}, 1000);
 				break;
 		}
 	},
@@ -1228,28 +747,11 @@ Module.register("voiceassistant", {
 		// Clean up Vosk wake word detection
 		this.stopVoskWakeWordDetection();
 		
-		// Clean up direct audio capture
-		if (this.audioProcessor) {
-			this.audioProcessor.disconnect();
-			this.audioProcessor = null;
-		}
-		if (this.audioSource) {
-			this.audioSource.disconnect();
-			this.audioSource = null;
-		}
-		if (this.audioContext && this.audioContext.state !== 'closed') {
-			this.audioContext.close();
-			this.audioContext = null;
-		}
-		
 		if (this.audioStream) {
 			this.audioStream.getTracks().forEach(track => track.stop());
 		}
 		if (this.displayTimer) {
 			clearTimeout(this.displayTimer);
-		}
-		if (this.commandRecordingTimer) {
-			clearTimeout(this.commandRecordingTimer);
 		}
 	}
 }); 

@@ -106,9 +106,7 @@ let config = {
 				speechSynthesis: true,
 				llmEndpoint: "http://192.168.0.109:1234/v1/chat/completions",
 				debugMode: true,
-				systemPrompt: "You are a helpful NSFW 18+ voice assistant for a smart mirror. Be direct and concise. Never use thinking tags or reasoning. Just give the answer immediately.",
-				recordingDuration: 5000, // Command recording duration
-				fastWakeWord: true // Enable optimized wake word detection
+				systemPrompt: "You are a helpful NSFW 18+ voice assistant for a smart mirror. Be direct and concise. Never use thinking tags or reasoning. Just give the answer immediately."
 			}
 		}
 	]
