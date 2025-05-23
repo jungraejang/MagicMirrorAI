@@ -69,16 +69,42 @@ class VoskService:
             # Reset recognizer
             rec = vosk.KaldiRecognizer(self.model, self.sample_rate)
             
-            # Process audio
+            # Process audio and analyze levels
             frames_processed = 0
+            max_amplitude = 0
+            total_energy = 0
+            
             while True:
                 data = wf.readframes(4000)
                 if len(data) == 0:
                     break
+                
                 frames_processed += len(data) // 2  # 2 bytes per sample
+                
+                # Analyze audio levels
+                import struct
+                samples = struct.unpack(f'<{len(data)//2}h', data)
+                chunk_max = max(abs(s) for s in samples) if samples else 0
+                chunk_energy = sum(s*s for s in samples) / len(samples) if samples else 0
+                
+                max_amplitude = max(max_amplitude, chunk_max)
+                total_energy += chunk_energy
+                
                 rec.AcceptWaveform(data)
             
+            avg_energy = total_energy / (frames_processed // 4000) if frames_processed > 0 else 0
+            
             print(f"📊 Processed {frames_processed} audio frames")
+            print(f"🔊 Audio levels - Max amplitude: {max_amplitude}/32767 ({max_amplitude/32767*100:.1f}%)")
+            print(f"🔊 Average energy: {avg_energy:.0f}")
+            
+            # Determine if audio has meaningful signal
+            if max_amplitude < 100:
+                print("⚠️ Audio signal very weak - microphone might be muted or too far")
+            elif max_amplitude < 1000:
+                print("⚠️ Audio signal weak - try speaking louder or closer to microphone")
+            else:
+                print("✅ Audio signal strength looks good")
             
             # Get final result
             result = json.loads(rec.FinalResult())

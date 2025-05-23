@@ -223,12 +223,12 @@ Module.register("voiceassistant", {
 			// Start recording
 			this.mediaRecorder.start();
 
-			// Simple approach: record for 5 seconds, then process and restart
+			// Simple approach: record for 8 seconds, then process and restart
 			this.wakeWordInterval = setTimeout(() => {
 				if (this.isWakeWordActive && this.mediaRecorder && this.mediaRecorder.state === "recording") {
 					this.mediaRecorder.stop();
 				}
-			}, 5000); // 5-second chunks for better speech detection
+			}, 8000); // 8-second chunks for better wake word capture
 
 		} catch (error) {
 			console.error("❌ [VoiceAssistant] Failed to start continuous recording:", error);
