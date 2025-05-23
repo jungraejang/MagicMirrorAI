@@ -1,83 +1,88 @@
+/* Voice Assistant Module Styles - Large Mirror Display */
 .voice-assistant {
-  padding: 15px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(5px);
-  max-width: 400px;
-  margin: 0 auto;
   text-align: center;
   color: #fff;
   font-family: "Roboto", sans-serif;
+  max-width: 80%;
+  margin: 0 auto;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
 }
 
 .status-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 15px 20px;
-  border-radius: 25px;
-  font-size: 16px;
+  gap: 20px;
+  padding: 25px 40px;
+  border-radius: 50px;
+  font-size: 28px;
+  font-weight: 600;
   transition: all 0.3s ease;
   cursor: pointer;
-  min-width: 200px;
+  min-width: 400px;
   justify-content: center;
+  margin-bottom: 20px;
 }
 
 .status-indicator:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 15px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 25px rgba(255, 255, 255, 0.4);
 }
 
 .status-indicator.initializing {
   background: linear-gradient(45deg, #3498db, #2980b9);
-  border: 2px solid #3498db;
+  border: 3px solid #3498db;
 }
 
 .status-indicator.waiting {
   background: linear-gradient(45deg, #27ae60, #2ecc71);
-  border: 2px solid #27ae60;
+  border: 3px solid #27ae60;
 }
 
 .status-indicator.listening {
   background: linear-gradient(45deg, #e74c3c, #c0392b);
-  border: 2px solid #e74c3c;
+  border: 3px solid #e74c3c;
   animation: glow 1.5s ease-in-out infinite alternate;
 }
 
 .status-indicator.processing {
   background: linear-gradient(45deg, #f39c12, #e67e22);
-  border: 2px solid #f39c12;
+  border: 3px solid #f39c12;
 }
 
 .status-indicator.responding {
   background: linear-gradient(45deg, #9b59b6, #8e44ad);
-  border: 2px solid #9b59b6;
+  border: 3px solid #9b59b6;
 }
 
 .status-indicator.error {
   background: linear-gradient(45deg, #e74c3c, #c0392b);
-  border: 2px solid #e74c3c;
+  border: 3px solid #e74c3c;
 }
 
 .status-indicator i {
-  font-size: 24px;
-  margin-right: 8px;
+  font-size: 36px;
+  margin-right: 15px;
 }
 
 .status-text {
-  font-weight: 500;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  font-weight: 600;
+  font-size: 24px;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 /* Animations */
 @keyframes glow {
   from {
-    box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+    box-shadow: 0 0 20px rgba(231, 76, 60, 0.5);
   }
   to {
     box-shadow:
-      0 0 20px rgba(231, 76, 60, 0.8),
-      0 0 30px rgba(231, 76, 60, 0.6);
+      0 0 40px rgba(231, 76, 60, 0.8),
+      0 0 60px rgba(231, 76, 60, 0.6);
   }
 }
 
@@ -110,44 +115,48 @@
   }
 }
 
-/* Conversation display */
+/* Conversation Display Styles - Much Larger */
 .conversation-display {
-  margin-top: 20px;
-  max-width: 400px;
+  margin-top: 40px;
+  max-width: 100%;
   text-align: left;
 }
 
 .user-message,
 .assistant-message,
 .current-processing {
-  margin: 10px 0;
-  padding: 12px 16px;
-  border-radius: 18px;
-  font-size: 14px;
-  line-height: 1.4;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  margin: 20px 0;
+  padding: 25px 35px;
+  border-radius: 25px;
+  font-size: 22px;
+  line-height: 1.6;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  font-weight: 500;
 }
 
 .user-message {
   background: linear-gradient(135deg, #4caf50, #45a049);
   color: white;
-  margin-left: 20px;
-  border-bottom-right-radius: 4px;
+  margin-left: 40px;
+  border-bottom-right-radius: 8px;
+  font-size: 24px;
 }
 
 .assistant-message {
   background: linear-gradient(135deg, #2196f3, #1976d2);
   color: white;
-  margin-right: 20px;
-  border-bottom-left-radius: 4px;
+  margin-right: 40px;
+  border-bottom-left-radius: 8px;
+  font-size: 24px;
 }
 
 .current-processing {
   background: linear-gradient(135deg, #ff9800, #f57c00);
   color: white;
-  margin-left: 20px;
-  border-bottom-right-radius: 4px;
+  margin-left: 40px;
+  border-bottom-right-radius: 8px;
   animation: processing-pulse 1.5s ease-in-out infinite;
+  font-size: 24px;
 }
 
 @keyframes processing-pulse {
@@ -163,8 +172,67 @@
 .user-message i,
 .assistant-message i,
 .current-processing i {
-  margin-right: 8px;
-  font-size: 12px;
+  margin-right: 15px;
+  font-size: 20px;
+}
+
+/* Responsive adjustments for different screen sizes */
+@media (max-width: 1200px) {
+  .voice-assistant {
+    max-width: 90%;
+    padding: 25px;
+  }
+
+  .status-indicator {
+    font-size: 24px;
+    padding: 20px 35px;
+    min-width: 350px;
+  }
+
+  .status-indicator i {
+    font-size: 32px;
+  }
+
+  .status-text {
+    font-size: 22px;
+  }
+
+  .user-message,
+  .assistant-message,
+  .current-processing {
+    font-size: 20px;
+    padding: 20px 30px;
+  }
+}
+
+@media (max-width: 800px) {
+  .voice-assistant {
+    max-width: 95%;
+    padding: 20px;
+  }
+
+  .status-indicator {
+    font-size: 20px;
+    padding: 18px 30px;
+    min-width: 300px;
+  }
+
+  .status-indicator i {
+    font-size: 28px;
+  }
+
+  .status-text {
+    font-size: 18px;
+  }
+
+  .user-message,
+  .assistant-message,
+  .current-processing {
+    font-size: 18px;
+    padding: 18px 25px;
+    margin-left: 20px;
+    margin-right: 20px;
+  }
 }
 
 /* Scrollbar styling */
@@ -184,35 +252,6 @@
 
 .conversation::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
-}
-
-/* Responsive design */
-@media (max-width: 600px) {
-  .voice-assistant {
-    max-width: 95%;
-    padding: 10px;
-  }
-
-  .status-indicator i {
-    font-size: 20px;
-  }
-
-  .status-text {
-    font-size: 14px;
-  }
-
-  .conversation-display {
-    max-width: 300px;
-  }
-
-  .user-message,
-  .assistant-message,
-  .current-processing {
-    font-size: 12px;
-    padding: 10px 14px;
-    margin-left: 10px;
-    margin-right: 10px;
-  }
 }
 
 /* Visual feedback for different states */
